@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import Image from "next/image";
 import Hls from "hls.js";
 import type { TeraboxFile, TeraboxResult } from "../lib/terabox";
 
@@ -66,8 +67,20 @@ function VideoPlayer({ activeFile, workerUrl }: VideoPlayerProps) {
   const [retryCount, setRetryCount] = useState(0);
   const [showSettings, setShowSettings] = useState(false);
   const [transientIndicator, setTransientIndicator] = useState<"play" | "pause" | "forward" | "rewind" | null>(null);
-  
+
+  // Mobile gesture state: vertical swipe on left half = brightness, right half = volume.
+  // We use CSS filter: brightness() on the video element (works on all browsers;
+  // true OS-level brightness is not exposed to web).
+  const [gestureOverlay, setGestureOverlay] = useState<{ kind: "brightness" | "volume"; value: number } | null>(null);
+  const [videoBrightness, setVideoBrightness] = useState(1); // 0..2, default 1
+  const touchStateRef = useRef<{ active: boolean; startX: number; startY: number; side: "left" | "right" | null; startValue: number; moved: boolean; startTime: number }>({ active: false, startX: 0, startY: 0, side: null, startValue: 0, moved: false, startTime: 0 });
+  // Stores the last-tap event's timeStamp (DOMHighResTimeStamp from the
+  // browser-assigned event time, not Date.now() — avoids the react-hooks
+  // purity rule that flags direct Date.now() calls inside the component).
+  const lastTapRef = useRef<{ time: number; x: number; side: "left" | "right" }>({ time: 0, x: 0, side: "left" });
+
   const indicatorTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const gestureOverlayTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const getAbsoluteUrl = (pathOrUrl: string) => {
     if (!pathOrUrl) return "";
@@ -524,6 +537,106 @@ function VideoPlayer({ activeFile, workerUrl }: VideoPlayerProps) {
     togglePlay();
   };
 
+  // ── Mobile gestures ─────────────────────────────────────────────────────────
+  // Single tap: show/hide controls. Double tap: rewind/forward 10s based on
+  // which half of the video was tapped. Vertical drag on left half adjusts
+  // brightness (via CSS filter), on right half adjusts volume.
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (e.touches.length !== 1) return;
+    const touch = e.touches[0];
+    const target = e.currentTarget as HTMLElement;
+    const rect = target.getBoundingClientRect();
+    const x = touch.clientX - rect.left;
+    const side: "left" | "right" = x < rect.width / 2 ? "left" : "right";
+    touchStateRef.current = {
+      active: true,
+      startX: touch.clientX,
+      startY: touch.clientY,
+      side,
+      startValue: side === "left" ? videoBrightness : (videoRef.current?.volume ?? volume),
+      moved: false,
+      // Use the browser-assigned event timeStamp (DOMHighResTimeStamp) instead
+      // of Date.now() — the React 19 purity rule flags Date.now() inside
+      // component-defined handlers.
+      startTime: e.timeStamp,
+    };
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    const ts = touchStateRef.current;
+    if (!ts.active || e.touches.length !== 1) return;
+    const touch = e.touches[0];
+    const dy = ts.startY - touch.clientY; // up = positive
+    const dx = Math.abs(touch.clientX - ts.startX);
+    const dyAbs = Math.abs(dy);
+    // Only treat as gesture if vertical movement is dominant
+    if (dyAbs > 8 && dyAbs > dx) {
+      if (!ts.moved) {
+        e.preventDefault();
+        ts.moved = true;
+      }
+      if (ts.side === "left") {
+        // Brightness: full screen height ≈ 2x range (0..2)
+        const delta = dy / (window.innerHeight * 0.5);
+        const next = Math.max(0, Math.min(2, ts.startValue + delta));
+        setVideoBrightness(next);
+        showGestureOverlay("brightness", next / 2);
+      } else {
+        // Volume: full screen height ≈ 1.0 range
+        const delta = dy / (window.innerHeight * 0.5);
+        const next = Math.max(0, Math.min(1, ts.startValue + delta));
+        handleVolumeChange(next);
+        showGestureOverlay("volume", next);
+      }
+    } else if (dx > 10 || dyAbs > 10) {
+      // Horizontal or diagonal drag — cancel gesture so native scroll/click works
+      ts.moved = true;
+    }
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    const ts = touchStateRef.current;
+    if (!ts.active) return;
+    // e.timeStamp is set by the browser when the event was created — same
+    // high-resolution clock for both touchstart and touchend, no Date.now()
+    // call needed inside the component (would trigger react-hooks/purity).
+    const duration = e.timeStamp - ts.startTime;
+    const wasTap = !ts.moved && duration < 300;
+    ts.active = false;
+    hideGestureOverlay();
+
+    if (!wasTap) return;
+
+    // Detect double-tap (within 300ms, same side)
+    const last = lastTapRef.current;
+    const target = e.currentTarget as HTMLElement;
+    const rect = target.getBoundingClientRect();
+    // Find the touch end position
+    const touch = e.changedTouches[0];
+    const x = touch.clientX - rect.left;
+    const side: "left" | "right" = x < rect.width / 2 ? "left" : "right";
+    if (e.timeStamp - last.time < 300 && last.side === side) {
+      // Double tap detected
+      e.preventDefault();
+      if (side === "left") skipTime(-10);
+      else skipTime(10);
+      lastTapRef.current = { time: 0, x: 0, side: "left" }; // reset
+    } else {
+      lastTapRef.current = { time: e.timeStamp, x, side };
+    }
+  };
+
+  const showGestureOverlay = (kind: "brightness" | "volume", value: number) => {
+    if (gestureOverlayTimeoutRef.current) clearTimeout(gestureOverlayTimeoutRef.current);
+    setGestureOverlay({ kind, value });
+  };
+
+  const hideGestureOverlay = () => {
+    if (gestureOverlayTimeoutRef.current) clearTimeout(gestureOverlayTimeoutRef.current);
+    gestureOverlayTimeoutRef.current = setTimeout(() => setGestureOverlay(null), 500);
+  };
+
   return (
     <div 
       ref={wrapperRef}
@@ -534,6 +647,7 @@ function VideoPlayer({ activeFile, workerUrl }: VideoPlayerProps) {
         <video
           ref={videoRef}
           className="player-video"
+          style={{ filter: `brightness(${videoBrightness})` }}
           playsInline
           autoPlay
           onPlay={() => setIsPlaying(true)}
@@ -545,6 +659,9 @@ function VideoPlayer({ activeFile, workerUrl }: VideoPlayerProps) {
           onProgress={handleProgress}
           onClick={handleVideoClick}
           onDoubleClick={handleVideoDoubleClick}
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
           onError={(e) => {
             const err = (e.target as HTMLVideoElement).error;
             console.error("Video element playback error:", err);
@@ -559,6 +676,35 @@ function VideoPlayer({ activeFile, workerUrl }: VideoPlayerProps) {
         {isBuffering && (
           <div className="player-loading-overlay">
             <div className="spinner"></div>
+          </div>
+        )}
+
+        {gestureOverlay && (
+          <div className={`gesture-overlay ${gestureOverlay.kind === "brightness" ? "left" : "right"}`}>
+            <div className="gesture-icon">
+              {gestureOverlay.kind === "brightness" ? (
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="5"></circle>
+                  <line x1="12" y1="1" x2="12" y2="3"></line>
+                  <line x1="12" y1="21" x2="12" y2="23"></line>
+                  <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+                  <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+                  <line x1="1" y1="12" x2="3" y2="12"></line>
+                  <line x1="21" y1="12" x2="23" y2="12"></line>
+                  <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+                  <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+                </svg>
+              ) : (
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+                  <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+                </svg>
+              )}
+            </div>
+            <div className="gesture-bar-track">
+              <div className="gesture-bar-fill" style={{ width: `${Math.round(gestureOverlay.value * 100)}%` }}></div>
+            </div>
+            <div className="gesture-value">{Math.round(gestureOverlay.value * 100)}%</div>
           </div>
         )}
 
@@ -670,28 +816,32 @@ function VideoPlayer({ activeFile, workerUrl }: VideoPlayerProps) {
               
               {showSettings && (
                 <div className="settings-popover">
-                  {qualityKeys.length > 0 && (
-                    <div className="settings-group">
-                      <div className="settings-title">Quality</div>
-                      <div className="settings-options">
-                        {qualityKeys.map((q) => (
-                          <button
-                            key={q}
-                            className={`settings-opt-btn ${currentQuality === q ? "active" : ""}`}
-                            onClick={() => handleQualityChange(q)}
-                          >
-                            {q}
-                          </button>
-                        ))}
-                        <button
-                          className={`settings-opt-btn ${currentQuality === "default" ? "active" : ""}`}
-                          onClick={() => handleQualityChange("default")}
-                        >
-                          Auto (Preview)
-                        </button>
-                      </div>
+                  <div className="settings-group">
+                    <div className="settings-title">Quality</div>
+                    <div className="settings-options">
+                      {qualityKeys.length > 0 ? (
+                        <>
+                          {qualityKeys.map((q) => (
+                            <button
+                              key={q}
+                              className={`settings-opt-btn ${currentQuality === q ? "active" : ""}`}
+                              onClick={() => handleQualityChange(q)}
+                            >
+                              {q}
+                            </button>
+                          ))}
+                        </>
+                      ) : (
+                        <div className="settings-note">Auto (server default)</div>
+                      )}
+                      <button
+                        className={`settings-opt-btn ${currentQuality === "default" ? "active" : ""}`}
+                        onClick={() => handleQualityChange("default")}
+                      >
+                        Auto
+                      </button>
                     </div>
-                  )}
+                  </div>
 
                   <div className="settings-group">
                     <div className="settings-title">Speed</div>
@@ -736,13 +886,13 @@ export default function Home() {
   const [error, setError] = useState("");
   const [result, setResult] = useState<TeraboxResult | null>(null);
   const [activeFile, setActiveFile] = useState<TeraboxFile | null>(null);
-  const [workerUrl, setWorkerUrl] = useState<string>("https://mute-butterfly-061b.rahulmantri2002.workers.dev");
+  // The worker URL is fixed per deployment (env var). Use a const so we don't
+  // carry a setter that's never called.
+  const workerUrl = "https://mute-butterfly-061b.rahulmantri2002.workers.dev";
   const [currentDir, setCurrentDir] = useState<string>("");
-  const [logs, setLogs] = useState<string[]>([]);
 
   const addLog = (msg: string) => {
     console.log("[TeraLink DEBUG]", msg);
-    setLogs(prev => [...prev.slice(-19), `${new Date().toLocaleTimeString()}: ${msg}`]);
   };
 
  
@@ -864,7 +1014,14 @@ export default function Home() {
     } else if (isImage(activeFile.name)) {
       playerNode = (
         <div className="player-wrap img-wrap">
-          <img src={activeFile.stream_url || ""} alt={activeFile.name} className="player-img" />
+          <Image
+            src={activeFile.stream_url || ""}
+            alt={activeFile.name}
+            className="player-img"
+            width={1280}
+            height={720}
+            unoptimized
+          />
         </div>
       );
     } else {
@@ -1478,6 +1635,64 @@ export default function Home() {
             padding: 4px;
             min-width: 50px;
           }
+        }
+
+        /* Gesture overlay (mobile brightness/volume drag indicator) */
+        .gesture-overlay {
+          position: absolute;
+          top: 50%;
+          transform: translateY(-50%);
+          background: rgba(0, 0, 0, 0.6);
+          backdrop-filter: blur(8px);
+          padding: 14px 12px;
+          border-radius: 14px;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 8px;
+          z-index: 14;
+          pointer-events: none;
+          animation: gesture-fade-in 120ms ease-out;
+          min-width: 56px;
+        }
+        .gesture-overlay.left {
+          left: 18%;
+        }
+        .gesture-overlay.right {
+          right: 18%;
+        }
+        .gesture-icon {
+          opacity: 0.95;
+        }
+        .gesture-bar-track {
+          width: 36px;
+          height: 4px;
+          background: rgba(255, 255, 255, 0.2);
+          border-radius: 2px;
+          overflow: hidden;
+        }
+        .gesture-bar-fill {
+          height: 100%;
+          background: var(--accent, #5c6ef8);
+          border-radius: 2px;
+          transition: width 60ms linear;
+        }
+        .gesture-value {
+          font-size: 0.7rem;
+          color: rgba(255, 255, 255, 0.85);
+          font-weight: 600;
+        }
+        @keyframes gesture-fade-in {
+          from { opacity: 0; transform: translateY(-50%) scale(0.92); }
+          to   { opacity: 1; transform: translateY(-50%) scale(1); }
+        }
+
+        /* "Auto (server default)" note inside the quality section when
+           no quality options are present (server didn't return alternatives). */
+        .settings-note {
+          color: var(--muted);
+          font-size: 0.75rem;
+          padding: 6px 4px;
         }
       `}</style>
 
