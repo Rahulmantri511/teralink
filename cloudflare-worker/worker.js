@@ -28,9 +28,71 @@ const DOMAINS = [
   'www.terabox.com',
 ];
 
+// ── Cache layer ───────────────────────────────────────────────────────────────
+// Session and file-list lookups are hit on every /resolve call. Caching them
+// at the edge for a short window (30-60s) dramatically reduces the request
+// rate we send to TeraBox — which directly helps avoid the rate-limit /
+// verification prompts (errno 400141/400210) that triggered the account flag.
+// dlinks and HLS URLs are NEVER cached (time-limited signatures).
+
+const SESSION_CACHE_TTL = 60;   // seconds
+const FILELIST_CACHE_TTL = 30;  // seconds
+
+async function cacheGet(key) {
+  try {
+    const cache = caches.default;
+    const cached = await cache.match(`https://cache.internal/${key}`);
+    if (!cached) return null;
+    const data = await cached.json();
+    if (Date.now() - data._cachedAt > data._ttl * 1000) return null;
+    return data.value;
+  } catch {
+    return null;
+  }
+}
+
+async function cachePut(key, value, ttl) {
+  try {
+    const cache = caches.default;
+    const data = { _cachedAt: Date.now(), _ttl: ttl, value };
+    const resp = new Response(JSON.stringify(data), {
+      headers: { 'Content-Type': 'application/json', 'Cache-Control': `max-age=${ttl}` },
+    });
+    await cache.put(`https://cache.internal/${key}`, resp);
+  } catch {}
+}
+
+// Cheap non-crypto hash for cache key derivation. Length+first/last chars is
+// enough to distinguish different cookie strings for cache invalidation.
+function simpleHash(s) {
+  if (!s) return 'empty';
+  return `${s.length}-${s.charCodeAt(0)}-${s.charCodeAt(s.length - 1)}`;
+}
+
 // Approximate bytes per second at each quality level
 // Used to decide chunk size when we don't know exact segment length
 const BYTES_PER_CHUNK = 4 * 1024 * 1024; // 4 MB per segment ≈ ~10s at 360p
+
+// ── TeraBox errno translator ─────────────────────────────────────────────────
+// TeraBox returns opaque numeric errnos. The most common ones related to
+// session/verification need to surface clear instructions so the user knows
+// exactly what to do (instead of staring at "errno 400141").
+function describeTeraBoxErrno(errno, domain) {
+  switch (Number(errno)) {
+    case 400141:
+      return `TeraBox session needs verification (errno 400141 on ${domain}). Open https://${domain} in a browser, complete the CAPTCHA/SMS verification, then re-extract the cookies and update .env.local.`;
+    case 400210:
+      return `TeraBox verify_v2 required (errno 400210 on ${domain}). The cookies in .env.local have aged out — log in to TeraBox in a browser and re-extract ndus/ndut_fmt/ndut_fmv/csrf/browserid.`;
+    case 2:
+    case 110:
+    case 111:
+      return `TeraBox rate limit hit (errno ${errno} on ${domain}). The Cloudflare edge cache should help, but if this persists, slow down your requests.`;
+    case 404:
+      return `TeraBox share not found (errno 404 on ${domain}). The link may be expired or invalid.`;
+    default:
+      return `TeraBox errno ${errno} on ${domain}: check the share link and your cookies.`;
+  }
+}
 
 // ── Crypto ────────────────────────────────────────────────────────────────────
 
@@ -141,6 +203,13 @@ function mergeCookieStrings(baseStr, overrideStr) {
 // ── Guest session ─────────────────────────────────────────────────────────────
 
 async function getSession(domain, shortCode, premiumCookies = '') {
+  // Cache the session per (domain, shortCode, cookie-hash). premiumCookies is
+  // included in the cache key so a fresh login invalidates prior entries.
+  const cookieHash = premiumCookies ? simpleHash(premiumCookies) : 'guest';
+  const cacheKey = `session:${domain}:${shortCode}:${cookieHash}`;
+  const cached = await cacheGet(cacheKey);
+  if (cached) return { ...cached, domain };
+
   const headers = {
     'User-Agent': UA,
     'Accept': 'text/html,application/xhtml+xml,*/*;q=0.8',
@@ -160,12 +229,31 @@ async function getSession(domain, shortCode, premiumCookies = '') {
   const jsToken = extractJsToken(html);
   const bdstoken = extractBdstoken(html);
   const browserid = getCookieValue(cookies, 'browserid');
-  return { cookies, jsToken, bdstoken, browserid, domain };
+  const session = { cookies, jsToken, bdstoken, browserid };
+  await cachePut(cacheKey, session, SESSION_CACHE_TTL);
+  return { ...session, domain };
 }
 
 // ── File list via /api/shorturlinfo ───────────────────────────────────────────
 
 async function callShorturlinfo(domain, shortCode, jsToken, cookies, dir = '') {
+  // Cache the file list per (domain, shortCode, dir, cookie-hash) for a
+  // short window. Cache is short because the share owner can add/remove
+  // files at any time. Key includes cookie hash so a fresh login bypasses
+  // any cached "needs verify" responses from the previous session.
+  const cookieHash = simpleHash(cookies);
+  const cacheKey = `filelist:${domain}:${shortCode}:${dir}:${cookieHash}`;
+  const cached = await cacheGet(cacheKey);
+  if (cached) return cached;
+
+  // Compute the result via the inner logic, then cache + return.
+  const result = await _callShorturlinfoInner(domain, shortCode, jsToken, cookies, dir);
+  // Fire-and-forget cache write; do not block the response.
+  cachePut(cacheKey, result, FILELIST_CACHE_TTL).catch(() => {});
+  return result;
+}
+
+async function _callShorturlinfoInner(domain, shortCode, jsToken, cookies, dir = '') {
   // If shortCode starts with '1' and has length 23 (1 + 22 char key),
   // strip the leading '1' to get the raw shortCode.
   // TeraBox's /share/list requires the raw shortCode (without '1' prefix),
@@ -196,7 +284,7 @@ async function callShorturlinfo(domain, shortCode, jsToken, cookies, dir = '') {
       signal: AbortSignal.timeout(12000),
     });
     const listJson = await listResp.json();
-    if (listJson.errno) throw new Error(`errno ${listJson.errno} on ${domain}`);
+    if (listJson.errno) throw new Error(describeTeraBoxErrno(listJson.errno, domain));
     if (!listJson.list?.length) throw new Error('empty list');
     return {
       list: listJson.list,
@@ -256,6 +344,7 @@ async function callShorturlinfo(domain, shortCode, jsToken, cookies, dir = '') {
     uk: listJson.uk,
     shareInfo: listJson.share_info,
   };
+  return result;
 }
 
 // ── Get dlink with authentication ─────────────────────────────────────────────
@@ -286,12 +375,23 @@ async function getDlink(domain, fsId, uk, shareId, shortCode, jsToken, bdstoken,
     signal: AbortSignal.timeout(12000),
   });
 
+  // TeraBox returns errno != 0 when the session is dead (400210 = verify_v2
+  // required, etc.). Throwing here lets the caller mark the dlink as dead
+  // and skip the broken HLS fallback. Without this, getDlink silently
+  // returned '' and the worker happily tried the equally-broken HLS path.
+  if (dlResp.status === 401 || dlResp.status === 403) {
+    throw new Error(`share/download returned ${dlResp.status} (TeraBox session likely expired)`);
+  }
+
   try {
     const j = await dlResp.json();
     console.log(`[worker] share/download errno: ${j.errno} on ${domain}`);
+    if (j.errno) throw new Error(describeTeraBoxErrno(j.errno, domain) + (j.show_msg ? ` (${j.show_msg})` : ''));
     if (j.list?.[0]?.dlink) return j.list[0].dlink;
     if (j.dlink) return j.dlink;
-  } catch {}
+  } catch (e) {
+    if (e.message?.includes('share/download')) throw e;
+  }
 
   // Fallback — /api/filemetas
   try {
@@ -310,9 +410,15 @@ async function getDlink(domain, fsId, uk, shareId, shortCode, jsToken, bdstoken,
       },
       signal: AbortSignal.timeout(12000),
     });
+    if (fmResp.status === 401 || fmResp.status === 403) {
+      throw new Error(`filemetas returned ${fmResp.status} (TeraBox session likely expired)`);
+    }
     const fmJson = await fmResp.json();
-    if (!fmJson.errno && fmJson.info?.[0]?.dlink) return fmJson.info[0].dlink;
-  } catch {}
+    if (fmJson.errno) throw new Error(describeTeraBoxErrno(fmJson.errno, domain));
+    if (fmJson.info?.[0]?.dlink) return fmJson.info[0].dlink;
+  } catch (e) {
+    if (e.message?.includes('filemetas') || e.message?.includes('share/download')) throw e;
+  }
 
   return '';
 }
@@ -321,65 +427,74 @@ async function getDlink(domain, fsId, uk, shareId, shortCode, jsToken, bdstoken,
 
 async function resolveRedirect(dlink, cookies) {
   if (!dlink) return '';
-  // Follow redirect to get the real CDN URL with valid signed params
+  const fetchOpts = {
+    method: 'HEAD',
+    headers: {
+      'User-Agent': UA,
+      'Referer': 'https://www.1024tera.com/',
+      'Cookie': cookies,
+    },
+    redirect: 'manual',
+    signal: AbortSignal.timeout(10000),
+  };
   try {
-    const resp = await fetch(dlink, {
-      method: 'HEAD',
-      headers: {
-        'User-Agent': UA,
-        'Referer': 'https://www.1024tera.com/',
-        'Cookie': cookies,
-      },
-      redirect: 'manual',
-      signal: AbortSignal.timeout(10000),
-    });
+    const resp = await fetch(dlink, fetchOpts);
 
-    // If redirect, grab the location
-    if (resp.status === 301 || resp.status === 302 || resp.status === 307 || resp.status === 308) {
-      return resp.headers.get('location') || dlink;
+    // 4xx means the session is dead or verification is required. Throw so
+    // the caller can mark the dlink as broken and skip the broken-by-design
+    // HLS fallback.
+    if (resp.status === 401 || resp.status === 403 || resp.status === 410) {
+      throw new Error(`dlink auth failed (${resp.status}) — TeraBox session likely expired`);
     }
 
-    // If 200 or 206, the dlink itself is the real CDN URL
-    if (resp.ok || resp.status === 206) return dlink;
-  } catch (e) {
-    console.log('[redirect] Failed to follow dlink redirect:', e?.message);
-  }
+    if (resp.status === 301 || resp.status === 302 || resp.status === 307 || resp.status === 308) {
+      const loc = resp.headers.get('location') || dlink;
+      // Follow the redirect and re-check status.
+      const redirResp = await fetch(loc, fetchOpts);
+      if (redirResp.status === 401 || redirResp.status === 403 || redirResp.status === 410) {
+        throw new Error(`dlink redirect auth failed (${redirResp.status}) — TeraBox session likely expired`);
+      }
+      return loc;
+    }
 
-  return dlink;
+    if (resp.ok || resp.status === 206) return dlink;
+    throw new Error(`dlink HEAD returned ${resp.status}`);
+  } catch (e) {
+    // Re-throw auth errors so the caller can surface them.
+    if (e.message?.includes('session likely expired') || e.message?.includes('auth failed')) throw e;
+    console.log('[redirect] Failed to follow dlink redirect:', e?.message);
+    throw e;
+  }
 }
 
 // ── Get file size from CDN URL ────────────────────────────────────────────────
 
 async function getFileSize(cdnUrl, cookies) {
+  const headers = {
+    'User-Agent': UA,
+    'Referer': 'https://www.1024tera.com/',
+    'Cookie': cookies,
+  };
   try {
-    const resp = await fetch(cdnUrl, {
-      method: 'HEAD',
-      headers: {
-        'User-Agent': UA,
-        'Referer': 'https://www.1024tera.com/',
-        'Cookie': cookies,
-      },
-      signal: AbortSignal.timeout(10000),
-    });
+    const resp = await fetch(cdnUrl, { method: 'HEAD', headers, signal: AbortSignal.timeout(10000) });
+    if (resp.status === 401 || resp.status === 403 || resp.status === 410) {
+      throw new Error(`CDN auth failed (${resp.status}) — TeraBox session likely expired`);
+    }
     const cl = resp.headers.get('content-length');
     if (cl) return parseInt(cl, 10);
-    // If HEAD doesn't return content-length, try with Range
-    const r = await fetch(cdnUrl, {
-      headers: {
-        'User-Agent': UA,
-        'Referer': 'https://www.1024tera.com/',
-        'Cookie': cookies,
-        'Range': 'bytes=0-0',
-      },
-      signal: AbortSignal.timeout(10000),
-    });
+    const r = await fetch(cdnUrl, { headers: { ...headers, 'Range': 'bytes=0-0' }, signal: AbortSignal.timeout(10000) });
+    if (r.status === 401 || r.status === 403 || r.status === 410) {
+      throw new Error(`CDN auth failed (${r.status}) — TeraBox session likely expired`);
+    }
     const cr = r.headers.get('content-range');
     if (cr) {
       const m = cr.match(/\/(\d+)$/);
       if (m) return parseInt(m[1], 10);
     }
   } catch (e) {
+    if (e.message?.includes('session likely expired')) throw e;
     console.log('[size] Failed to get file size:', e?.message);
+    throw e;
   }
   return 0;
 }
@@ -464,7 +579,7 @@ async function getStreamingUrl(domain, shareId, uk, fsId, jsToken, browserid, co
     finalUrl = `https://${domain}/share/streaming?${params}`;
   } else if (contentType.includes('json')) {
     const json = await resp.json();
-    if (json.errno) throw new Error(`streaming errno ${json.errno}: ${json.show_msg || ''}`);
+    if (json.errno) throw new Error(describeTeraBoxErrno(json.errno, domain) + (json.show_msg ? ` (${json.show_msg})` : ''));
     finalUrl = json.m3u8_url || json.url || json.hls_mp4_url;
   } else {
     const text = await resp.text().catch(() => '');
@@ -472,7 +587,7 @@ async function getStreamingUrl(domain, shareId, uk, fsId, jsToken, browserid, co
       finalUrl = `https://${domain}/share/streaming?${params}`;
     } else if (text.includes('errno')) {
       const j = JSON.parse(text);
-      throw new Error(`streaming errno ${j.errno}: ${j.show_msg || ''}`);
+      throw new Error(describeTeraBoxErrno(j.errno, domain) + (j.show_msg ? ` (${j.show_msg})` : ''));
     } else {
       throw new Error(`Unknown streaming response (${resp.status}): ${text.substring(0, 100)}`);
     }
@@ -486,6 +601,15 @@ async function getStreamingUrl(domain, shareId, uk, fsId, jsToken, browserid, co
 
   throw new Error('No valid stream URL resolved');
 }
+
+// ── Subrequest budget ─────────────────────────────────────────────────────────
+// Cloudflare Workers default limit is 50 subrequests per invocation.
+// Unlimited plans allow 1000. We cap ourselves well below both limits.
+
+// Cap parallel domain probes to keep the total subrequest count predictable.
+const MAX_PARALLEL_DOMAINS = 4;
+// Cap sequential fallback depth to limit worst-case subrequest count.
+const MAX_SEQUENTIAL_FALLBACKS = 3;
 
 // ── Main resolve ──────────────────────────────────────────────────────────────
 
@@ -504,21 +628,22 @@ async function resolveFull(shortCode, auth = {}, workerBase = '', dir = '') {
     premCookiesStr = premParts.join('; ');
   }
 
-  // Step 1: Get guest/premium session from multiple domains in parallel
+  // Step 1: Get guest/premium session — probe top domains in parallel.
+  // We pick the session with the most cookies (= most auth state).
+  const topDomains = DOMAINS.slice(0, MAX_PARALLEL_DOMAINS);
   const sessionResults = await Promise.allSettled(
-    DOMAINS.map(d => getSession(d, shortCode, premCookiesStr))
+    topDomains.map(d => getSession(d, shortCode, premCookiesStr))
   );
 
-  let bestCookies = premCookiesStr || '', bestJsToken = '', bestBdstoken = '', bestBrowserid = auth.browserid || '', bestDomain = DOMAINS[0];
+  let bestCookies = premCookiesStr || '', bestJsToken = '', bestBdstoken = '',
+      bestBrowserid = auth.browserid || '', bestDomain = topDomains[0];
   let maxCookiesLen = -1;
 
   for (const r of sessionResults) {
     if (r.status !== 'fulfilled') continue;
     const { cookies, jsToken, bdstoken, browserid, domain } = r.value;
-    
-    // Merge guest/session cookies with our premium/base cookies cleanly (deduplicated)
     const merged = mergeCookieStrings(premCookiesStr, cookies);
-    
+
     if (merged.length > maxCookiesLen) {
       bestCookies   = merged;
       bestJsToken   = jsToken || bestJsToken;
@@ -530,7 +655,6 @@ async function resolveFull(shortCode, auth = {}, workerBase = '', dir = '') {
     }
   }
 
-  // Ensure browserid is explicitly set and deduplicated in the final cookies
   if (bestBrowserid) {
     bestCookies = mergeCookieStrings(bestCookies, `browserid=${bestBrowserid}`);
   }
@@ -539,30 +663,26 @@ async function resolveFull(shortCode, auth = {}, workerBase = '', dir = '') {
     return { success: false, error: 'Could not get guest session from any domain.' };
   }
 
-  // Step 2: Get file list
+  // Step 2: Get file list — try bestDomain first, then sequential fallbacks.
+  // Sequential (not Promise.all) prevents blowing the subrequest limit when
+  // bestDomain succeeds — we stop probing once we have a result.
   let files = [], shareId = '', uk = '';
+  const listDomainOrder = [
+    bestDomain,
+    ...DOMAINS.filter(d => d !== bestDomain).slice(0, MAX_SEQUENTIAL_FALLBACKS),
+  ];
 
-  try {
-    const api = await callShorturlinfo(bestDomain, shortCode, bestJsToken, bestCookies, dir);
-    files   = (api.list ?? []).map(mapFile);
-    shareId = String(api.shareid ?? '');
-    uk      = String(api.uk ?? '');
-    console.log(`[worker] Got ${files.length} file(s) from bestDomain ${bestDomain}, uk=${uk}, shareid=${shareId}`);
-  } catch (err) {
-    console.log(`[worker] Failed callShorturlinfo on bestDomain ${bestDomain}: ${err?.message}. Trying fallbacks...`);
-    const fallbackDomains = DOMAINS.filter(d => d !== bestDomain);
-    const apiResults = await Promise.allSettled(
-      fallbackDomains.map(d => callShorturlinfo(d, shortCode, bestJsToken, bestCookies, dir))
-    );
-    for (const r of apiResults) {
-      if (r.status === 'fulfilled') {
-        const api = r.value;
-        files   = (api.list ?? []).map(mapFile);
-        shareId = String(api.shareid ?? '');
-        uk      = String(api.uk ?? '');
-        console.log(`[worker] Got ${files.length} file(s) from fallback, uk=${uk}, shareid=${shareId}`);
-        break;
-      }
+  for (const d of listDomainOrder) {
+    try {
+      const api = await callShorturlinfo(d, shortCode, bestJsToken, bestCookies, dir);
+      files   = (api.list ?? []).map(mapFile);
+      shareId = String(api.shareid ?? '');
+      uk      = String(api.uk ?? '');
+      bestDomain = d;  // remember which domain worked for downstream steps
+      console.log(`[worker] Got ${files.length} file(s) from ${d}, uk=${uk}, shareid=${shareId}`);
+      break;
+    } catch (err) {
+      console.log(`[worker] callShorturlinfo failed on ${d}: ${err?.message}`);
     }
   }
 
@@ -570,14 +690,8 @@ async function resolveFull(shortCode, auth = {}, workerBase = '', dir = '') {
     return { success: false, error: 'Could not fetch file list from any domain.' };
   }
 
-  // Step 3: For each video file, get streaming URL + dlink + fast_stream_url
-  const qualitiesToFetch = {
-    '360': 'M3U8_AUTO_360',
-    '480': 'M3U8_AUTO_480',
-    '720': 'M3U8_AUTO_720',
-    '1080': 'M3U8_AUTO_1080'
-  };
-
+  // Step 3: For each file, build the dlink-based fast_stream M3U8 (PRIMARY).
+  // HLS streaming URL is fetched only as a fallback if dlink resolution fails.
   for (const f of files) {
     if (f.isDir) continue;
     f.sizeFormatted = formatSize(f.size);
@@ -585,39 +699,50 @@ async function resolveFull(shortCode, auth = {}, workerBase = '', dir = '') {
     f.qualities     = {};
     f.fastStreamUrl = '';
     f.dlinkResolved = f.dlink || '';
+    f.debugInfo     = { streamErrors: [], dlinkErrors: [] };
 
-    // 3a: Try to get authenticated dlink from best domain first
+    // 3a: Get authenticated dlink — try bestDomain first, then sequential fallbacks.
+    // We track dlinkErrored=true if getDlink throws for any domain (e.g. TeraBox
+    // errno 400210 = verify_v2 required). This means the session is dead and
+    // the HLS fallback would also fail, so we skip it in step 3c.
+    let dlinkErrored = false;
     if (!f.dlink) {
-      try {
-        const dl = await getDlink(bestDomain, f.fs_id, uk, shareId, shortCode, bestJsToken, bestBdstoken, bestCookies);
-        if (dl) {
-          f.dlinkResolved = dl;
-          console.log(`[worker] Got dlink for ${f.filename} from bestDomain`);
-        }
-      } catch (err) {
-        console.log(`[worker] Failed getDlink on bestDomain: ${err?.message}. Trying fallbacks...`);
-        const fallbackDomains = DOMAINS.filter(d => d !== bestDomain);
-        const dlinkResults = await Promise.allSettled(
-          fallbackDomains.map(d => getDlink(d, f.fs_id, uk, shareId, shortCode, bestJsToken, bestBdstoken, bestCookies))
-        );
-        for (const r of dlinkResults) {
-          if (r.status === 'fulfilled' && r.value) {
-            f.dlinkResolved = r.value;
-            console.log(`[worker] Got dlink for ${f.filename} from fallback`);
+      const dlinkDomainOrder = [
+        bestDomain,
+        ...DOMAINS.filter(d => d !== bestDomain).slice(0, MAX_SEQUENTIAL_FALLBACKS),
+      ];
+      for (const d of dlinkDomainOrder) {
+        try {
+          const dl = await getDlink(d, f.fs_id, uk, shareId, shortCode, bestJsToken, bestBdstoken, bestCookies);
+          if (dl) {
+            f.dlinkResolved = dl;
+            console.log(`[worker] Got dlink for ${f.filename} from ${d}`);
             break;
           }
+          f.debugInfo.dlinkErrors.push({
+            domain: d,
+            error: 'getDlink returned empty (no dlink in response)',
+          });
+        } catch (err) {
+          f.debugInfo.dlinkErrors.push({
+            domain: d,
+            error: err?.message ?? 'getDlink threw',
+          });
+          dlinkErrored = true;
+          console.log(`[worker] getDlink failed on ${d}: ${err?.message}`);
         }
       }
     }
 
-    // 3b: Build fast_stream M3U8 from dlink byte-ranges (full video!)
+    // 3b: Build fast_stream M3U8 from dlink byte-ranges (PRIMARY strategy).
+    // This is the FULL video, not a 30-second preview, and the CDN URL
+    // doesn't need time-based signature refresh like HLS streaming URLs.
+    // If the dlink returns 401/403, we know the session is dead and the
+    // HLS fallback will also fail — mark dlinkStatus='dead' to skip it.
+    let dlinkStatus = f.dlinkResolved ? 'pending' : 'no_dlink';
     if (f.dlinkResolved && workerBase) {
       try {
-        // Resolve any redirect on the dlink to get the real CDN URL
         const cdnUrl = await resolveRedirect(f.dlinkResolved, bestCookies);
-        console.log(`[worker] CDN URL resolved for fast_stream`);
-
-        // Get actual file size
         let fileSize = f.size || 0;
         if (!fileSize) {
           fileSize = await getFileSize(cdnUrl, bestCookies);
@@ -626,9 +751,6 @@ async function resolveFull(shortCode, auth = {}, workerBase = '', dir = '') {
         if (fileSize > 0) {
           const encodedUrl = b64Encode(cdnUrl);
           const encodedCookies = b64Encode(bestCookies);
-          // Generate synthetic M3U8
-          const m3u8Content = buildM3U8(workerBase, encodedUrl, encodedCookies, fileSize, f.filename);
-          // Store the fast_stream URL as an endpoint path on this worker
           const fastStreamParams = new URLSearchParams({
             url:     encodedUrl,
             cookies: encodedCookies,
@@ -636,74 +758,63 @@ async function resolveFull(shortCode, auth = {}, workerBase = '', dir = '') {
             name:    f.filename,
           });
           f.fastStreamUrl = `${workerBase}/fast_stream?${fastStreamParams}`;
-          console.log(`[worker] fast_stream URL built, size=${fileSize}, segments=${Math.ceil(fileSize / BYTES_PER_CHUNK)}`);
+          dlinkStatus = 'ok';
+          console.log(`[worker] fast_stream URL built for ${f.filename}, size=${fileSize}, segments=${Math.ceil(fileSize / BYTES_PER_CHUNK)}`);
+        } else {
+          dlinkStatus = 'zero_size';
+          f.debugInfo.dlinkErrors.push({ error: 'CDN returned 0 bytes for content-length' });
         }
       } catch (e) {
-        console.log(`[worker] fast_stream build failed: ${e?.message}`);
+        dlinkStatus = 'dead';
+        f.debugInfo.dlinkErrors.push({
+          error: e?.message ?? 'fast_stream build failed',
+        });
+        console.log(`[worker] dlink is dead for ${f.filename}: ${e?.message}`);
       }
     }
+    f.debugInfo.dlinkStatus = dlinkStatus;
 
-    // 3c: Get HLS qualities (30-second preview — kept for compatibility)
-    if (shareId && uk) {
-      f.debugInfo = { streamErrors: [] };
-      const qKeys = Object.keys(qualitiesToFetch);
-      await Promise.all(qKeys.map(async (qKey) => {
-        const qType = qualitiesToFetch[qKey];
-        
-        // Try bestDomain first
+    // 3c: HLS streaming URL — FALLBACK only when dlink-based fast_stream failed
+    // AND the dlink isn't provably dead. Two ways the dlink can be dead:
+    //   1. resolveRedirect threw on 4xx (dlinkStatus === 'dead')
+    //   2. getDlink threw on errno (dlinkErrored === true) — TeraBox's
+    //      /share/download returned errno 400210 (verify_v2 required) and
+    //      similar auth errors. In both cases the CDN will 403, so skip HLS.
+    const skipHls = !f.fastStreamUrl && (dlinkStatus === 'dead' || dlinkErrored);
+    if (!f.fastStreamUrl && !skipHls && shareId && uk) {
+      const fallbackQuality = 'M3U8_AUTO_480';
+      const streamDomainOrder = [
+        bestDomain,
+        ...DOMAINS.filter(d => d !== bestDomain).slice(0, MAX_SEQUENTIAL_FALLBACKS),
+      ];
+
+      for (const d of streamDomainOrder) {
         try {
-          const streamUrl = await getStreamingUrl(bestDomain, shareId, uk, f.fs_id, bestJsToken, bestBrowserid, bestCookies, qType);
+          const streamUrl = await getStreamingUrl(d, shareId, uk, f.fs_id, bestJsToken, bestBrowserid, bestCookies, fallbackQuality);
           if (streamUrl) {
-            f.qualities[qKey] = streamUrl;
-            if (qKey === '360') {
-              f.hlsUrl = streamUrl;
-            }
-            return;
+            f.qualities['480'] = streamUrl;
+            f.hlsUrl = streamUrl;
+            console.log(`[worker] Got HLS streaming URL for ${f.filename} from ${d}`);
+            break;
           }
+          f.debugInfo.streamErrors.push({ domain: d, quality: '480', error: 'getStreamingUrl returned empty' });
         } catch (err) {
           f.debugInfo.streamErrors.push({
-            domain: bestDomain,
-            quality: qKey,
-            error: err?.message ?? 'Failed on bestDomain'
+            domain: d,
+            quality: '480',
+            error: err?.message ?? 'Unknown error',
           });
         }
-
-        // Fallback to other domains
-        const fallbackDomains = DOMAINS.filter(d => d !== bestDomain);
-        const streamResults = await Promise.allSettled(
-          fallbackDomains.map(d =>
-            getStreamingUrl(d, shareId, uk, f.fs_id, bestJsToken, bestBrowserid, bestCookies, qType)
-          )
-        );
-
-        streamResults.forEach((r, idx) => {
-          if (r.status === 'rejected') {
-            f.debugInfo.streamErrors.push({
-              domain: fallbackDomains[idx],
-              quality: qKey,
-              error: r.reason?.message ?? 'Unknown error'
-            });
-          }
-        });
-
-        const ok = streamResults.find(r => r.status === 'fulfilled' && r.value);
-        if (ok?.value) {
-          f.qualities[qKey] = ok.value;
-          if (qKey === '360') {
-            f.hlsUrl = ok.value;
-          }
-        }
-      }));
-
-      if (!f.hlsUrl) {
-        const resolvedQualities = Object.keys(f.qualities);
-        if (resolvedQualities.length > 0) {
-          f.hlsUrl = f.qualities[resolvedQualities[0]];
-        }
       }
+    } else if (skipHls) {
+      console.log(`[worker] Skipping HLS for ${f.filename} — dlink is dead, session likely expired`);
+      f.debugInfo.streamErrors.push({
+        error: 'HLS skipped: dlink returned 4xx (session expired or verification required)',
+      });
     }
   }
 
+  // Build response
   const filesList = [];
   let totalFiles = 0;
   let totalFolders = 0;
@@ -716,17 +827,39 @@ async function resolveFull(shortCode, auth = {}, workerBase = '', dir = '') {
     }
 
     const type = isVideo(f.filename) ? 'video' : isAudio(f.filename) ? 'audio' : isImage(f.filename) ? 'image' : 'file';
-    
-    // Map qualities to fast_stream_url matching "360p", "480p", etc.
+
+    // Map qualities to fast_stream_url.
+    // Priority: dlink-based fast_stream (full video, no signature refresh) > HLS (30s preview).
     const fastStreamUrlMap = {};
-    if (f.qualities) {
+
+    // Primary: dlink-based fast_stream M3U8 (full video).
+    // The byte-range M3U8 is the same URL for all "qualities" — the player
+    // requests whatever byte ranges it needs, and the original file's quality
+    // is whatever the uploader chose.
+    if (f.fastStreamUrl) {
+      for (const q of ['360p', '480p', '720p', '1080p']) {
+        fastStreamUrlMap[q] = f.fastStreamUrl;
+      }
+      fastStreamUrlMap['Original (Full)'] = f.fastStreamUrl;
+    }
+
+    // Secondary: HLS streaming URLs (30-second preview), if dlink-based failed.
+    if (!f.fastStreamUrl && f.qualities) {
       for (const qKey of Object.keys(f.qualities)) {
         fastStreamUrlMap[`${qKey}p`] = `${workerBase}${f.qualities[qKey]}`;
       }
     }
+
+    // Direct download link.
     if (f.dlinkResolved) {
-      fastStreamUrlMap['Original (Full)'] = `${workerBase}/stream?url=${b64Encode(f.dlinkResolved)}&cookies=${b64Encode(bestCookies)}`;
+      fastStreamUrlMap['Direct Download'] = `${workerBase}/stream?url=${b64Encode(f.dlinkResolved)}&cookies=${b64Encode(bestCookies)}&dl=1`;
     }
+
+    // Determine primary quality label for the file.
+    let primaryQuality = '360p';
+    if (fastStreamUrlMap['480p']) primaryQuality = '480p';
+    else if (fastStreamUrlMap['360p']) primaryQuality = '360p';
+    else if (Object.keys(fastStreamUrlMap).length > 0) primaryQuality = Object.keys(fastStreamUrlMap)[0];
 
     filesList.push({
       fs_id: f.fs_id,
@@ -737,15 +870,44 @@ async function resolveFull(shortCode, auth = {}, workerBase = '', dir = '') {
       type,
       is_dir: f.isDir ? "1" : "0",
       duration: "00:00:00",
-      quality: f.qualities && Object.keys(f.qualities).length > 0 ? `${Object.keys(f.qualities)[0]}p` : "360p",
+      quality: primaryQuality,
       normal_dlink: f.dlinkResolved ? `${workerBase}/stream?url=${b64Encode(f.dlinkResolved)}&cookies=${b64Encode(bestCookies)}&dl=1` : "",
-      stream_url: f.hlsUrl ? `${workerBase}${f.hlsUrl}` : (f.dlinkResolved ? `${workerBase}/stream?url=${b64Encode(f.dlinkResolved)}&cookies=${b64Encode(bestCookies)}` : ""),
+      stream_url: f.hlsUrl
+        ? `${workerBase}${f.hlsUrl}`
+        : (f.dlinkResolved
+          ? `${workerBase}/stream?url=${b64Encode(f.dlinkResolved)}&cookies=${b64Encode(bestCookies)}`
+          : (f.fastStreamUrl || "")),
       fast_stream_url: fastStreamUrlMap,
       subtitle_url: "",
       thumbnail: f.thumbnail,
       folder: "root",
       debugInfo: f.debugInfo
     });
+  }
+
+  // If no file has a working playback URL, return a clear top-level error
+  // instead of status: "success" with broken URLs. This gives the caller a
+  // reliable signal that the session needs refreshing, rather than letting
+  // the player discover the failure later via 403 from the CDN.
+  const anyPlayable = filesList.some(f =>
+    (f.fast_stream_url && Object.keys(f.fast_stream_url).length > 0) || f.stream_url
+  );
+
+  if (!anyPlayable && totalFiles > 0) {
+    // Detect whether this is a session/auth failure vs. some other issue
+    // (e.g. all files are folders, unsupported file types).
+    const anyDlinkDead = filesList.some(f => f.debugInfo?.dlinkStatus === 'dead');
+    const errorMsg = anyDlinkDead
+      ? 'TeraBox session expired or verification is required. Please refresh the cookies in .env.local and try again.'
+      : 'No playable video files found in this share. The link may have expired, or all files may be unsupported types.';
+
+    return {
+      status: "failed",
+      error: errorMsg,
+      total_files: totalFiles,
+      total_folders: totalFolders,
+      list: filesList,
+    };
   }
 
   return {
@@ -889,6 +1051,19 @@ export default {
           }
         }
 
+        // Pass through upstream status. Critically, do NOT collapse 4xx/5xx to 200 —
+        // the player needs to see real error codes (e.g. 403 when the TeraBox session
+        // has expired) so hls.js can surface a useful error message.
+        if (upstream.status >= 400) {
+          return new Response(upstream.body, {
+            status: upstream.status,
+            headers: {
+              'Content-Type': upstream.headers.get('content-type') || 'text/plain',
+              ...CORS,
+            },
+          });
+        }
+
         const resHeaders = {
           'Content-Type': 'video/mp2t',
           'Accept-Ranges': 'bytes',
@@ -901,7 +1076,7 @@ export default {
         if (cr) resHeaders['Content-Range'] = cr;
 
         return new Response(upstream.body, {
-          status: upstream.status === 206 ? 206 : 200,
+          status: upstream.status,
           headers: resHeaders,
         });
       } catch (err) {
