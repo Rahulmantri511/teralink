@@ -39,7 +39,19 @@ function VideoPlayer({ activeFile, workerUrl }: VideoPlayerProps) {
   const qualities = activeFile.fast_stream_url || {};
   const qualityKeys = Object.keys(qualities).filter(k => qualities[k]);
 
-  const [currentQuality, setCurrentQuality] = useState<string>("default");
+  const [currentQuality, setCurrentQuality] = useState<string>(() => {
+    const qualities = activeFile.fast_stream_url || {};
+    const keys = Object.keys(qualities).filter(k => qualities[k]);
+    return keys.includes("480p")
+      ? "480p"
+      : keys.includes("360p")
+        ? "360p"
+        : keys.includes("720p")
+          ? "720p"
+          : keys.includes("Original (Full)")
+            ? "Original (Full)"
+            : keys[0] || "default";
+  });
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -48,7 +60,6 @@ function VideoPlayer({ activeFile, workerUrl }: VideoPlayerProps) {
   const [isMuted, setIsMuted] = useState(false);
   const [playbackRate, setPlaybackRate] = useState(1);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [isPiP, setIsPiP] = useState(false);
   const [showControls, setShowControls] = useState(true);
   const [isBuffering, setIsBuffering] = useState(false);
   const [playerError, setPlayerError] = useState<string | null>(null);
@@ -57,22 +68,6 @@ function VideoPlayer({ activeFile, workerUrl }: VideoPlayerProps) {
   const [transientIndicator, setTransientIndicator] = useState<"play" | "pause" | "forward" | "rewind" | null>(null);
   
   const indicatorTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-
-  // Set default quality when activeFile changes
-  useEffect(() => {
-    const qualities = activeFile.fast_stream_url || {};
-    const keys = Object.keys(qualities).filter(k => qualities[k]);
-    const defQuality = keys.includes("480p")
-      ? "480p"
-      : (keys.includes("360p")
-        ? "360p"
-        : (keys.includes("720p")
-          ? "720p"
-          : (keys.includes("Original (Full)")
-            ? "Original (Full)"
-            : (keys[0] || "default"))));
-    setCurrentQuality(defQuality);
-  }, [activeFile.fs_id, activeFile.fast_stream_url]);
 
   const getAbsoluteUrl = (pathOrUrl: string) => {
     if (!pathOrUrl) return "";
@@ -169,16 +164,22 @@ function VideoPlayer({ activeFile, workerUrl }: VideoPlayerProps) {
     const video = videoRef.current;
     if (!wrapper || !video) return;
 
+    // webkitEnterFullscreen is a non-standard iOS Safari API, absent from TS DOM types
+    interface WebkitVideoElement extends HTMLVideoElement {
+      webkitEnterFullscreen?: () => void;
+    }
+    const videoWebkit = video as WebkitVideoElement;
+
     if (!document.fullscreenElement) {
       if (wrapper.requestFullscreen) {
         wrapper.requestFullscreen().catch(err => {
           console.error("Fullscreen error:", err);
-          if (video.webkitEnterFullscreen) {
-            video.webkitEnterFullscreen();
+          if (videoWebkit.webkitEnterFullscreen) {
+            videoWebkit.webkitEnterFullscreen();
           }
         });
-      } else if (video.webkitEnterFullscreen) {
-        video.webkitEnterFullscreen();
+      } else if (videoWebkit.webkitEnterFullscreen) {
+        videoWebkit.webkitEnterFullscreen();
       }
     } else {
       if (document.exitFullscreen) {
@@ -193,10 +194,8 @@ function VideoPlayer({ activeFile, workerUrl }: VideoPlayerProps) {
     try {
       if (document.pictureInPictureElement) {
         await document.exitPictureInPicture();
-        setIsPiP(false);
       } else if (video.requestPictureInPicture) {
         await video.requestPictureInPicture();
-        setIsPiP(true);
       }
     } catch (err) {
       console.error("PiP error:", err);
@@ -353,7 +352,7 @@ function VideoPlayer({ activeFile, workerUrl }: VideoPlayerProps) {
         }
       }, { once: true });
     }
-  }, [currentStreamUrl, retryCount]);
+  }, [currentStreamUrl, retryCount]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Cleanup HLS on unmount
   useEffect(() => {
@@ -448,7 +447,7 @@ function VideoPlayer({ activeFile, workerUrl }: VideoPlayerProps) {
     return () => {
       window.removeEventListener("keydown", handleGlobalKeyDown);
     };
-  }, [isPlaying, volume, isMuted, duration]);
+  }, [isPlaying, volume, isMuted, duration]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-hide controls
   useEffect(() => {
@@ -536,7 +535,6 @@ function VideoPlayer({ activeFile, workerUrl }: VideoPlayerProps) {
           ref={videoRef}
           className="player-video"
           playsInline
-          webkitPlaysInline={true}
           autoPlay
           onPlay={() => setIsPlaying(true)}
           onPause={() => setIsPlaying(false)}
@@ -747,27 +745,7 @@ export default function Home() {
     setLogs(prev => [...prev.slice(-19), `${new Date().toLocaleTimeString()}: ${msg}`]);
   };
 
-  useEffect(() => {
-    try {
-      addLog("Home mounted");
-      addLog("Default Worker: " + workerUrl);
-      
-      // Safe environment variable check
-      let workerEnv = "";
-      if (typeof process !== "undefined" && process.env) {
-        workerEnv = process.env.NEXT_PUBLIC_TERABOX_WORKER_URL || "";
-      }
-      
-      if (workerEnv) {
-        setWorkerUrl(workerEnv);
-        addLog("Worker overridden by env: " + workerEnv);
-      }
-    } catch (err: any) {
-      console.error("Error in mount useEffect:", err);
-      setLogs(prev => [...prev, `Mount error: ${err?.message ?? String(err)}`]);
-    }
-  }, []);
-
+ 
   async function resolveLink() {
     addLog("resolveLink() called. Current link: '" + link + "'");
     try {
@@ -814,10 +792,10 @@ export default function Home() {
       setActiveFile(first);
       setStatus("Ready!");
       setTimeout(() => setStatus(""), 2000);
-    } catch (err: any) {
-      const errMsg = err?.message ?? String(err);
-      addLog("Exception in resolveLink: " + errMsg);
-      setError(`Network error: ${errMsg}`);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      addLog("Exception in resolveLink: " + message);
+      setError(`Network error: ${message}`);
       setStatus("");
     } finally {
       setLoading(false);
@@ -855,8 +833,8 @@ export default function Home() {
         setActiveFile(first);
       }
       setStatus("");
-    } catch (err: any) {
-      setError(`Error opening folder: ${err?.message ?? String(err)}`);
+    } catch (err: unknown) {
+      setError(`Error opening folder: ${err instanceof Error ? err.message : String(err)}`);
       setStatus("");
     } finally {
       setLoading(false);
@@ -872,7 +850,7 @@ export default function Home() {
     let playerNode = null;
 
     if (isVideo(activeFile.name) || hasHls) {
-      playerNode = <VideoPlayer activeFile={activeFile} workerUrl={workerUrl} />;
+      playerNode = <VideoPlayer key={activeFile.fs_id} activeFile={activeFile} workerUrl={workerUrl} />;
     } else if (isAudio(activeFile.name)) {
       playerNode = (
         <div className="player-wrap audio-wrap">
@@ -1575,39 +1553,6 @@ export default function Home() {
               <p className="empty-sub">terabox.com · terasharefile.com · 1024tera.com · teraboxapp.com</p>
             </div>
           )}
-
-          {/* Visual Debug Console Logs */}
-          <div className="debug-logs-panel" style={{
-            marginTop: "24px",
-            padding: "16px",
-            background: "#181b24",
-            border: "1.5px solid var(--border)",
-            borderRadius: "var(--radius)",
-            fontSize: "0.78rem",
-            fontFamily: "monospace",
-            color: "#a0aaff",
-            maxHeight: "180px",
-            overflowY: "auto",
-            textAlign: "left",
-            boxShadow: "inset 0 2px 4px rgba(0,0,0,0.3)"
-          }}>
-            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "8px", borderBottom: "1px dashed var(--border)", paddingBottom: "6px" }}>
-              <span style={{ fontWeight: "700", color: "#e8eaf6" }}>Mobile Debug Console:</span>
-              <button 
-                onClick={() => setLogs([])} 
-                style={{ background: "none", border: "none", color: "var(--muted)", cursor: "pointer", fontSize: "0.72rem" }}
-              >
-                Clear Logs
-              </button>
-            </div>
-            {logs.length === 0 ? (
-              <div style={{ color: "var(--muted)", fontStyle: "italic" }}>Console is empty. Paste a link and tap "Play" to capture event traces.</div>
-            ) : (
-              logs.map((log, index) => (
-                <div key={index} style={{ padding: "2px 0", borderBottom: "1px solid rgba(255,255,255,0.03)", whiteSpace: "pre-wrap", wordBreak: "break-all" }}>{log}</div>
-              ))
-            )}
-          </div>
         </div>
         <div className="footer">TeraLink — your own TeraBox streaming server</div>
       </div>

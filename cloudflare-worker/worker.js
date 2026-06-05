@@ -831,22 +831,33 @@ export default {
     }
 
     // GET /segment?url=<b64>&cookies=<b64>&range=<b64-encoded "start-end">
-    // Proxies a byte-range slice of the CDN video file (each TS-like chunk)
+    // Proxies a byte-range slice (or full file) of the CDN video with CORS headers.
+    // range is optional — when omitted, the request's Range header is forwarded instead.
     if (url.pathname === '/segment') {
       const encodedUrl     = url.searchParams.get('url');
       const encodedCookies = url.searchParams.get('cookies') || '';
       const encodedRange   = url.searchParams.get('range');
 
-      if (!encodedUrl || !encodedRange) {
+      if (!encodedUrl) {
         return new Response('Missing required params', { status: 400 });
       }
 
-      let targetUrl, rangeStr;
+      let targetUrl, rangeStr = '';
       try {
         targetUrl = b64Decode(encodedUrl);
-        rangeStr  = b64Decode(encodedRange); // "start-end"
+        if (encodedRange) {
+          rangeStr = b64Decode(encodedRange); // "start-end"
+        }
       } catch {
         return new Response('Invalid params', { status: 400 });
+      }
+
+      // Fallback: if no range in query params, use the incoming request's Range header
+      if (!rangeStr) {
+        const reqRange = request.headers.get('Range');
+        if (reqRange) {
+          rangeStr = reqRange.replace(/^bytes=/, '');
+        }
       }
 
       let cookiesStr = '';
@@ -858,8 +869,8 @@ export default {
         'User-Agent': UA,
         'Referer': 'https://www.1024tera.com/',
         'Accept': '*/*',
-        'Range': `bytes=${rangeStr}`,
       };
+      if (rangeStr) fetchHeaders['Range'] = `bytes=${rangeStr}`;
       if (cookiesStr) fetchHeaders['Cookie'] = cookiesStr;
 
       try {
@@ -971,8 +982,8 @@ async function refreshStreamingUrl(targetUrl, cookies) {
           });
         }
 
-        // Rewrite segment paths to point DIRECTLY to the absolute TeraBox CDN URLs.
-        // This bypasses the Cloudflare worker proxy for segments entirely, delivering maximum speed.
+        // Rewrite segment paths to route through the worker's /segment proxy.
+        // This ensures CORS headers are present, avoiding browser CORS blocks on CDN URLs.
         const lines = text.split('\n');
         const rewrittenLines = lines.map(line => {
           const trimmed = line.trim();
@@ -988,7 +999,9 @@ async function refreshStreamingUrl(targetUrl, cookies) {
                 }
               } catch {}
             }
-            return absoluteSegUrl;
+            // Route segment through worker proxy to add CORS headers
+            const encodedSeg = b64Encode(absoluteSegUrl);
+            return `${workerBase}/segment?url=${encodedSeg}${encodedCookies ? `&cookies=${encodedCookies}` : ''}`;
           }
           return line;
         });
