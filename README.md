@@ -1,36 +1,73 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# TeraBox Player
+
+A minimal web app that lets users paste a TeraBox share link and play the video directly in the browser **without ads and redirects**.
+
+## How It Works
+
+```
+1. User pastes TeraBox share link
+   ↓
+2. App extracts short code from URL
+   ↓
+3. App visits share page → extracts jsToken + bootstrap cookies
+   ↓
+4. App calls TeraBox internal API → gets file metadata + download link
+   ↓
+5. Browser streams video directly from CDN (MP4)
+```
+
+## Supported Domains
+
+- `terabox.com`
+- `terasharefile.com`
+- `1024tera.com`
+- `teraboxapp.com`
+- `1024terabox.com`
+- `terashare.com`
+- `terabytez.com`
+- `terabits.io`
+- `teradrive.com`
 
 ## Getting Started
 
-First, run the development server:
+### 1. Install and run
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open http://localhost:3000
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### 2. Paste a TeraBox link (optional: add session cookie first)
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+If you get an error about "verify_v2 required", see [README_COOKIE.md](README_COOKIE.md) to add a session cookie to `.env.local`.
 
-## Learn More
+## Environment Variables
 
-To learn more about Next.js, take a look at the following resources:
+Add these to `.env.local`:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```
+# Only needed if you get "errno 400210" (verify_v2 required)
+# See README_COOKIE.md for how to extract this
+TERABOX_COOKIE=""
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+# Optional: proxy through a third-party resolver
+TERABOX_RESOLVER_API=""
+```
 
-## Deploy on Vercel
+## Troubleshooting
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+| Error | Solution |
+|-------|----------|
+| "verify_v2 required" | Add `TERABOX_COOKIE` — see [README_COOKIE.md](README_COOKIE.md) |
+| "No files found" | Link might be expired or doesn't exist |
+| Cannot connect | Try a different domain or set `TERABOX_COOKIE` |
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## How to Get Your Session Cookie
+
+See [README_COOKIE.md](README_COOKIE.md) for step-by-step instructions.
+
+---
+
+This is a [Next.js](https://nextjs.org) project. Learn more at [nextjs.org](https://nextjs.org/docs).
