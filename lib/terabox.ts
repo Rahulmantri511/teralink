@@ -1,3 +1,5 @@
+import { resolveFullLocal } from './resolver';
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export type TeraboxFile = {
@@ -103,6 +105,7 @@ export async function resolveTerabox(
   shareUrl: string,
   envCookie?: string,
   dir?: string,
+  userAgent?: string,
 ): Promise<TeraboxResult> {
   try {
     const code = extractShortCode(shareUrl);
@@ -119,19 +122,19 @@ export async function resolveTerabox(
       };
     }
 
-    // ── Call Worker ──────────────────────────────────────────────────────────
+    // ── Call Local Resolver ──────────────────────────────────────────────────
     let workerData: any;
     try {
-      workerData = await callWorker(code, workerUrl, {
+      workerData = await resolveFullLocal(code, {
         ndus:      process.env.TERABOX_NDUS,
         ndut_fmt:  process.env.TERABOX_NDUT_FMT,
         ndut_fmv:  process.env.TERABOX_NDUT_FMV,
         csrf:      process.env.TERABOX_CSRF,
         browserid: process.env.TERABOX_BROWSERID,
-      }, dir);
+      }, workerUrl, dir, userAgent);
     } catch (err: any) {
-      console.error('[worker] Error:', err?.message);
-      return { error: `Worker error: ${err?.message}` };
+      console.error('[resolver] Error:', err?.message);
+      return { error: `Resolver error: ${err?.message}` };
     }
 
     if (workerData.status !== 'success') {

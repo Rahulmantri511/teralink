@@ -82,7 +82,8 @@ export async function POST(req: Request) {
     console.log(`[resolve] URL: ${trimmed}, code: ${code}${dir ? `, dir: ${dir}` : ''}`);
 
     const envCookie = process.env.TERABOX_COOKIE ?? '';
-    const result = await resolveTerabox(trimmed, envCookie, dir);
+    const userAgent = req.headers.get('user-agent') || '';
+    const result = await resolveTerabox(trimmed, envCookie, dir, userAgent);
 
     if (result.status !== 'success') {
       return NextResponse.json(result, { status: 500 });

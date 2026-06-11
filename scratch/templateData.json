@@ -1,0 +1,25 @@
+{
+  "bdstoken": "fdb0828388836ff960b39d2f614e9b40",
+  "pcftoken": "6b320092e7d72c9e07e352ad64a63020",
+  "isShowShareAds": false,
+  "newDomain": {
+    "origin": "https://dm.1024tera.com",
+    "host": "dm.1024tera.com",
+    "domain": "1024tera.com",
+    "cdn": "https://terastaticc.com",
+    "isGCP": false,
+    "originalPrefix": "dm",
+    "regionDomainPrefix": "dm",
+    "urlDomainPrefix": "dm"
+  },
+  "teralinkAbtest": [
+    {
+      "i_srn_flow": 1000,
+      "srn_flow": 1000,
+      "srn_flow_comment": "unit thousandth"
+    }
+  ],
+  "internal": false,
+  "userVipIdentity": 0,
+  "uk": "81364556971170"
+}

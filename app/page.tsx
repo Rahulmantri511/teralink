@@ -85,6 +85,11 @@ function VideoPlayer({ activeFile, workerUrl }: VideoPlayerProps) {
   const getAbsoluteUrl = (pathOrUrl: string) => {
     if (!pathOrUrl) return "";
     
+    // If it's a local API endpoint, return as-is
+    if (pathOrUrl.startsWith("/api/")) {
+      return pathOrUrl;
+    }
+    
     // If it's already an absolute URL pointing to a stream or fast_stream endpoint, return as-is
     if (pathOrUrl.startsWith("http")) {
       const isWorkerEndpoint = pathOrUrl.includes("/stream") || 
@@ -1029,8 +1034,8 @@ export default function Home() {
         <div className="player-wrap generic-wrap">
           <p className="generic-icon">📄</p>
           <p className="generic-name">{activeFile.name}</p>
-          <a href={activeFile.normal_dlink || "#"} download className="dl-btn">
-            ⬇ Download ({activeFile.size_formatted})
+          <a href={activeFile.normal_dlink || link} download={!!activeFile.normal_dlink} target={!activeFile.normal_dlink ? "_blank" : undefined} rel={!activeFile.normal_dlink ? "noopener noreferrer" : undefined} className="dl-btn">
+            ⬇ {activeFile.normal_dlink ? `Download (${activeFile.size_formatted})` : "Download (via TeraBox)"}
           </a>
         </div>
       );
@@ -1047,10 +1052,15 @@ export default function Home() {
               <h3>{activeFile.name}</h3>
               <span className="file-details-size">{activeFile.size_formatted}</span>
             </div>
-            {activeFile.normal_dlink && (
+            {activeFile.normal_dlink ? (
               <a href={activeFile.normal_dlink} className="details-dl-btn" download={activeFile.name}>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
                 {isVideo(activeFile.name) || hasHls ? "Download Video" : isAudio(activeFile.name) ? "Download Audio" : "Download Image"}
+              </a>
+            ) : (
+              <a href={link} className="details-dl-btn fallback-dl-btn" target="_blank" rel="noopener noreferrer" title="Download via official TeraBox website/app">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+                Download (via TeraBox)
               </a>
             )}
           </div>
@@ -1751,9 +1761,9 @@ export default function Home() {
                     <div className="file-name">{f.name}</div>
                     <div className="file-size">{f.is_dir === "1" ? "Folder" : f.size_formatted}</div>
                   </div>
-                  {f.is_dir !== "1" && f.normal_dlink && (
+                  {f.is_dir !== "1" && (
                     <div className="file-dl" onClick={(e) => e.stopPropagation()}>
-                      <a className="icon-btn" href={f.normal_dlink} download={f.name} title="Download">⬇</a>
+                      <a className="icon-btn" href={f.normal_dlink || link} download={!!f.normal_dlink} target={!f.normal_dlink ? "_blank" : undefined} rel={!f.normal_dlink ? "noopener noreferrer" : undefined} title={f.normal_dlink ? "Download" : "Download (via TeraBox)"}>⬇</a>
                     </div>
                   )}
                 </div>
