@@ -1,5 +1,5 @@
 import type { NextRequest } from 'next/server';
-import { ProxyAgent } from 'undici';
+import { ProxyAgent, fetch as undiciFetch } from 'undici';
 
 const ALLOWED_HOSTS = [
   'terabox.com',
@@ -44,7 +44,8 @@ async function proxyFetch(url: string, options: RequestInit = {}): Promise<Respo
     // @ts-ignore
     fetchOpts.dispatcher = dispatcher;
   }
-  return fetch(url, fetchOpts);
+  // @ts-ignore
+  return undiciFetch(url, fetchOpts);
 }
 
 function b64Encode(str: string): string {
