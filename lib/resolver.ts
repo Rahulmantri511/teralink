@@ -524,6 +524,9 @@ async function getStreamingUrl(domain: string, shareId: string, uk: string, fsId
 export async function resolveFullLocal(shortCode: string, auth: any = {}, workerBase = '', dir = '', userAgent = '') {
   console.log(`[local-resolver] Resolving: ${shortCode}`);
 
+  // We MUST use the desktop UA when fetching from TeraBox, otherwise TeraBox treats it as mobile and limits video playback to 30s or blocks dlinks.
+  const fetchUa = UA;
+
   let premCookiesStr = '';
   if (auth && auth.ndus) {
     const premParts = [];
@@ -537,7 +540,7 @@ export async function resolveFullLocal(shortCode: string, auth: any = {}, worker
 
   let session: any = null;
   try {
-    session = await getSession('dm.1024tera.com', shortCode, premCookiesStr, userAgent);
+    session = await getSession('dm.1024tera.com', shortCode, premCookiesStr, fetchUa);
   } catch (err: any) {
     console.log(`[local-resolver] Primary domain session lookup failed: ${err?.message}. Trying fallbacks...`);
   }
@@ -556,7 +559,7 @@ export async function resolveFullLocal(shortCode: string, auth: any = {}, worker
   } else {
     const fallbackDomains = DOMAINS.filter(d => d !== 'dm.1024tera.com').slice(0, 3);
     const sessionResults = await Promise.allSettled(
-      fallbackDomains.map(d => getSession(d, shortCode, premCookiesStr, userAgent))
+      fallbackDomains.map(d => getSession(d, shortCode, premCookiesStr, fetchUa))
     );
 
     let maxCookiesLen = -1;
@@ -594,7 +597,7 @@ export async function resolveFullLocal(shortCode: string, auth: any = {}, worker
 
   for (const d of listDomainOrder) {
     try {
-      const api = await callShorturlinfo(d, shortCode, bestJsToken, bestCookies, dir, userAgent);
+      const api = await callShorturlinfo(d, shortCode, bestJsToken, bestCookies, dir, fetchUa);
       files   = (api.list ?? []).map(mapFile);
       shareId = String(api.shareid ?? '');
       uk      = String(api.uk ?? '');
@@ -627,7 +630,7 @@ export async function resolveFullLocal(shortCode: string, auth: any = {}, worker
       ];
       for (const d of dlinkDomainOrder) {
         try {
-          const dl = await getDlink(d, f.fs_id, uk, shareId, shortCode, bestJsToken, bestBdstoken, bestCookies, userAgent);
+          const dl = await getDlink(d, f.fs_id, uk, shareId, shortCode, bestJsToken, bestBdstoken, bestCookies, fetchUa);
           if (dl) {
             f.dlinkResolved = dl;
             console.log(`[local-resolver] Got dlink for ${f.filename} from ${d}`);
@@ -702,7 +705,7 @@ export async function resolveFullLocal(shortCode: string, auth: any = {}, worker
 
       for (const d of streamDomainOrder) {
         try {
-          const streamUrl = await getStreamingUrl(d, shareId, uk, f.fs_id, bestJsToken, bestBrowserid, bestCookies, fallbackQuality, userAgent);
+          const streamUrl = await getStreamingUrl(d, shareId, uk, f.fs_id, bestJsToken, bestBrowserid, bestCookies, fallbackQuality, fetchUa);
           if (streamUrl) {
             f.qualities['480'] = streamUrl;
             f.hlsUrl = streamUrl;

@@ -97,7 +97,7 @@ export async function GET(req: NextRequest) {
   if (isPlaylist) {
     try {
       const headers: Record<string, string> = {
-        'User-Agent': req.headers.get('user-agent') || UA,
+        'User-Agent': UA,
         'Referer': 'https://www.terabox.app/',
         'Accept': '*/*',
       };
