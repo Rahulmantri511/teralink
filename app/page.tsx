@@ -927,7 +927,6 @@ export default function Home() {
       // Try File System Access API (Chrome desktop) for true streaming to disk
       if ('showSaveFilePicker' in window) {
         try {
-          // @ts-expect-error – File System Access API not in all TS lib versions
           const handle = await (window as Window & typeof globalThis & { showSaveFilePicker: (o: object) => Promise<{ createWritable: () => Promise<{ write: (d: ArrayBuffer) => Promise<void>; close: () => Promise<void> }> }> }).showSaveFilePicker({
             suggestedName: outName,
             types: [{ description: 'Video file', accept: { 'video/mp2t': ['.ts'] } }],
