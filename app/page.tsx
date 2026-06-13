@@ -300,11 +300,12 @@ function VideoPlayer({ activeFile, workerUrl }: VideoPlayerProps) {
       }
 
       if (Hls.isSupported()) {
+        // HLS.js supported (desktop, Android Chrome/Firefox, etc.)
         const hls = new Hls({
           enableWorker: true,
-          maxBufferLength: 30,
-          maxMaxBufferLength: 60,
-          lowLatencyMode: true,
+          maxBufferLength: 60,
+          maxMaxBufferLength: 600,
+          lowLatencyMode: false,
         });
         hlsRef.current = hls;
 
@@ -342,6 +343,9 @@ function VideoPlayer({ activeFile, workerUrl }: VideoPlayerProps) {
           }
         });
       } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
+        // iOS Safari native HLS — no HLS.js support here.
+        // The stream URL is already proxied via /api/stream which rewrites segments
+        // through the worker, so iOS can play it via native HLS too.
         video.src = streamUrl;
         video.addEventListener("loadedmetadata", () => {
           if (previousTime > 0) {
