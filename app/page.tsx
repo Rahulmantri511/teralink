@@ -899,10 +899,86 @@ export default function Home() {
   // carry a setter that's never called.
   const workerUrl = "https://mute-butterfly-061b.rahulmantri2002.workers.dev";
   const [currentDir, setCurrentDir] = useState<string>("");
+  const [dlProgress, setDlProgress] = useState<number>(-1); // -1 = idle, 0-100 = downloading
+  const [dlFileName, setDlFileName] = useState<string>("");
 
   const addLog = (msg: string) => {
     console.log("[TeraLink DEBUG]", msg);
   };
+
+  async function handleDownload(streamUrl: string, filename: string) {
+    if (dlProgress >= 0) return; // already downloading
+    setDlFileName(filename);
+    setDlProgress(0);
+    try {
+      // Fetch the proxied M3U8 playlist
+      const absUrl = streamUrl.startsWith('http') ? streamUrl : window.location.origin + streamUrl;
+      const resp = await fetch(absUrl);
+      if (!resp.ok) throw new Error('Failed to fetch playlist');
+      const text = await resp.text();
+
+      // Parse segment URLs from M3U8
+      const segments = text.split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('#'));
+      if (!segments.length) throw new Error('No segments found');
+
+      const baseName = filename.replace(/\.mp4$/i, '').replace(/\.mkv$/i, '') || 'video';
+      const outName = baseName + '.ts';
+
+      // Try File System Access API (Chrome desktop) for true streaming to disk
+      if ('showSaveFilePicker' in window) {
+        try {
+          // @ts-expect-error – File System Access API not in all TS lib versions
+          const handle = await (window as Window & typeof globalThis & { showSaveFilePicker: (o: object) => Promise<{ createWritable: () => Promise<{ write: (d: ArrayBuffer) => Promise<void>; close: () => Promise<void> }> }> }).showSaveFilePicker({
+            suggestedName: outName,
+            types: [{ description: 'Video file', accept: { 'video/mp2t': ['.ts'] } }],
+          });
+          const writable = await handle.createWritable();
+          for (let i = 0; i < segments.length; i++) {
+            const segResp = await fetch(segments[i]);
+            if (!segResp.ok) continue;
+            const buf = await segResp.arrayBuffer();
+            await writable.write(buf);
+            setDlProgress(Math.round(((i + 1) / segments.length) * 100));
+          }
+          await writable.close();
+          setDlProgress(-1);
+          return;
+        } catch (fsErr: unknown) {
+          if ((fsErr as { name?: string })?.name === 'AbortError') { setDlProgress(-1); return; } // user cancelled
+          // fall through to in-memory approach
+        }
+      }
+
+      // Fallback: collect all segments in memory then trigger download
+      const chunks: Uint8Array[] = [];
+      for (let i = 0; i < segments.length; i++) {
+        const segResp = await fetch(segments[i]);
+        if (!segResp.ok) continue;
+        const buf = await segResp.arrayBuffer();
+        chunks.push(new Uint8Array(buf));
+        setDlProgress(Math.round(((i + 1) / segments.length) * 100));
+      }
+      const total = chunks.reduce((s, c) => s + c.byteLength, 0);
+      const combined = new Uint8Array(total);
+      let offset = 0;
+      for (const c of chunks) { combined.set(c, offset); offset += c.byteLength; }
+      const blob = new Blob([combined], { type: 'video/mp2t' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = outName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 30000);
+    } catch (err: unknown) {
+      console.error('Download failed:', err);
+      alert('Download failed: ' + ((err as { message?: string })?.message || String(err)));
+    } finally {
+      setDlProgress(-1);
+      setDlFileName('');
+    }
+  }
 
  
   async function resolveLink() {
@@ -1061,12 +1137,19 @@ export default function Home() {
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
                 {isVideo(activeFile.name) || hasHls ? "Download Video" : isAudio(activeFile.name) ? "Download Audio" : "Download Image"}
               </a>
-            ) : (
-              <a href={link} className="details-dl-btn fallback-dl-btn" target="_blank" rel="noopener noreferrer" title="Download via official TeraBox website/app">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
-                Download (via TeraBox)
-              </a>
-            )}
+            ) : activeFile.stream_url ? (
+              <button
+                className={`details-dl-btn${dlProgress >= 0 ? ' dl-progress-btn' : ''}`}
+                onClick={() => handleDownload(activeFile.stream_url, activeFile.name)}
+                disabled={dlProgress >= 0}
+                title="Download video by assembling stream segments"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                {dlProgress >= 0 && dlFileName === activeFile.name
+                  ? `Downloading… ${dlProgress}%`
+                  : `Download Video`}
+              </button>
+            ) : null}
           </div>
         )}
       </div>
@@ -1167,9 +1250,17 @@ export default function Home() {
           font-size: 0.85rem;
           white-space: nowrap;
           transition: opacity 0.2s;
+          border: none;
+          cursor: pointer;
+          font-family: inherit;
         }
-        .details-dl-btn:hover {
+        .details-dl-btn:hover:not(:disabled) {
           opacity: 0.9;
+        }
+        .details-dl-btn:disabled, .dl-progress-btn {
+          opacity: 0.75;
+          cursor: wait;
+          background: linear-gradient(135deg, #3a4a9a, #6a3a9a);
         }
 
         /* Loading Spinner */
@@ -1767,7 +1858,19 @@ export default function Home() {
                   </div>
                   {f.is_dir !== "1" && (
                     <div className="file-dl" onClick={(e) => e.stopPropagation()}>
-                      <a className="icon-btn" href={f.normal_dlink || link} download={!!f.normal_dlink} target={!f.normal_dlink ? "_blank" : undefined} rel={!f.normal_dlink ? "noopener noreferrer" : undefined} title={f.normal_dlink ? "Download" : "Download (via TeraBox)"}>⬇</a>
+                      {f.normal_dlink ? (
+                        <a className="icon-btn" href={f.normal_dlink} download={f.name} title="Download">⬇</a>
+                      ) : f.stream_url ? (
+                        <button
+                          className="icon-btn"
+                          onClick={() => handleDownload(f.stream_url, f.name)}
+                          disabled={dlProgress >= 0}
+                          title={dlProgress >= 0 && dlFileName === f.name ? `${dlProgress}%` : "Download"}
+                          style={{ background: 'none', border: 'none', cursor: dlProgress >= 0 ? 'wait' : 'pointer', color: 'inherit', padding: 0, font: 'inherit' }}
+                        >
+                          {dlProgress >= 0 && dlFileName === f.name ? `${dlProgress}%` : '⬇'}
+                        </button>
+                      ) : null}
                     </div>
                   )}
                 </div>
