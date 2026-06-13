@@ -184,7 +184,23 @@ async function handlePlaylistResponse(upstream: Response, targetUrl: string, wor
     return line;
   });
 
-  return new Response(rewrittenLines.join('\n'), {
+  // Ensure mandatory HLS headers are present for mobile browser compatibility.
+  // iOS Safari and Android Chrome require #EXT-X-VERSION and #EXT-X-MEDIA-SEQUENCE.
+  let finalLines = rewrittenLines;
+  const joined = rewrittenLines.join('\n');
+  if (!joined.includes('#EXT-X-VERSION')) {
+    const extm3uIdx = finalLines.findIndex(l => l.trim() === '#EXTM3U');
+    if (extm3uIdx !== -1) {
+      finalLines = [
+        ...finalLines.slice(0, extm3uIdx + 1),
+        '#EXT-X-VERSION:3',
+        '#EXT-X-MEDIA-SEQUENCE:0',
+        ...finalLines.slice(extm3uIdx + 1),
+      ];
+    }
+  }
+
+  return new Response(finalLines.join('\n'), {
     status: upstream.status,
     headers: {
       'Content-Type': 'application/x-mpegURL',

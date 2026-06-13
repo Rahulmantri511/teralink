@@ -512,12 +512,16 @@ function buildM3U8(workerBase, encodedUrl, encodedCookies, fileSize, filename) {
     offset = end + 1;
   }
 
-  const duration = 10; // nominal segment duration for player compatibility
+  // Use a nominal per-segment duration. The actual bytes may not align to real
+  // time, but HLS.js and native players only care that TARGETDURATION >= any
+  // single EXTINF value. We set it equal to the per-segment value.
+  const duration = 10; // nominal seconds per 4 MB chunk
   const lines = [
     '#EXTM3U',
-    `#PATH:/${filename}`,
+    '#EXT-X-VERSION:3',
+    '#EXT-X-MEDIA-SEQUENCE:0',
     `#EXT-X-TARGETDURATION:${duration}`,
-    '#EXT-X-DISCONTINUITY',
+    '#EXT-X-PLAYLIST-TYPE:VOD',
   ];
 
   for (const seg of segments) {
