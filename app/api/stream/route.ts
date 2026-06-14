@@ -1,5 +1,6 @@
 import type { NextRequest } from 'next/server';
 import { ProxyAgent, fetch as undiciFetch } from 'undici';
+import { encryptPayload, decryptPayload } from '../../../lib/crypto';
 
 const ALLOWED_HOSTS = [
   'terabox.com',
@@ -61,19 +62,58 @@ function b64Decode(str: string): string {
 }
 
 export async function GET(req: NextRequest) {
+  // Security Origin / Referer Validation
+  const origin = req.headers.get('origin');
+  const referer = req.headers.get('referer');
+  const host = req.headers.get('host') || '';
+  const customAllowedOrigin = process.env.ALLOWED_ORIGIN || '';
+
+  const isDomainAllowed = (domainHost: string) => {
+    if (domainHost === host) return true;
+    if (domainHost.startsWith('localhost:')) return true;
+    if (domainHost.endsWith('.vercel.app')) return true;
+    if (customAllowedOrigin && domainHost === customAllowedOrigin) return true;
+    return false;
+  };
+
+  if (origin) {
+    try {
+      const originUrl = new URL(origin);
+      if (!isDomainAllowed(originUrl.host)) {
+        return new Response('Forbidden origin', { status: 403 });
+      }
+    } catch {
+      return new Response('Invalid origin header', { status: 400 });
+    }
+  }
+
+  if (referer) {
+    try {
+      const refererUrl = new URL(referer);
+      if (!isDomainAllowed(refererUrl.host)) {
+        return new Response('Forbidden referer', { status: 403 });
+      }
+    } catch {
+      return new Response('Invalid referer header', { status: 400 });
+    }
+  }
+
   const { searchParams } = req.nextUrl;
-  const urlParam = searchParams.get('url');
+  const payload = searchParams.get('p');
   const download = searchParams.get('dl') === '1';
 
-  if (!urlParam) {
-    return new Response('Missing ?url= parameter', { status: 400 });
+  if (!payload) {
+    return new Response('Missing ?p= parameter', { status: 400 });
   }
 
   let targetUrl: string;
+  let cookiesStr: string;
   try {
-    targetUrl = b64Decode(urlParam);
-  } catch {
-    targetUrl = urlParam;
+    const decrypted = await decryptPayload(payload);
+    targetUrl = decrypted.url;
+    cookiesStr = decrypted.cookies;
+  } catch (err: any) {
+    return new Response('Invalid or expired encrypted payload', { status: 400 });
   }
 
   if (!isAllowedHost(targetUrl)) {
@@ -81,11 +121,6 @@ export async function GET(req: NextRequest) {
   }
 
   const workerUrl = process.env.TERABOX_WORKER_URL || '';
-  const cookiesParam = searchParams.get('cookies') || '';
-  let cookiesStr = '';
-  if (cookiesParam) {
-    try { cookiesStr = b64Decode(cookiesParam); } catch {}
-  }
 
   const isPlaylist = targetUrl.includes('.m3u8') || 
                      targetUrl.includes('type=M3U8') || 
@@ -113,11 +148,11 @@ export async function GET(req: NextRequest) {
         if (redirUrl) {
           console.log(`[local-stream] Following playlist redirect: ${redirUrl}`);
           const redirResp = await proxyFetch(redirUrl, { headers });
-          return handlePlaylistResponse(redirResp, redirUrl, workerUrl, cookiesParam);
+          return handlePlaylistResponse(redirResp, redirUrl, workerUrl, cookiesStr);
         }
       }
 
-      return handlePlaylistResponse(upstream, targetUrl, workerUrl, cookiesParam);
+      return handlePlaylistResponse(upstream, targetUrl, workerUrl, cookiesStr);
     } catch (err: any) {
       console.error('[local-stream] Playlist fetch failed:', err?.message);
       return new Response('Playlist fetch failed: ' + err?.message, { status: 502 });
@@ -145,7 +180,7 @@ export async function GET(req: NextRequest) {
   });
 }
 
-async function handlePlaylistResponse(upstream: Response, targetUrl: string, workerUrl: string, cookiesParam: string) {
+async function handlePlaylistResponse(upstream: Response, targetUrl: string, workerUrl: string, cookiesStr: string) {
   const text = await upstream.text();
   
   if (text.trim().startsWith('{') || text.includes('"errno"')) {
@@ -163,7 +198,7 @@ async function handlePlaylistResponse(upstream: Response, targetUrl: string, wor
   const lines = text.split('\n');
   const workerBase = workerUrl.replace(/\/$/, '');
   
-  const rewrittenLines = lines.map(line => {
+  const rewrittenLinesPromises = lines.map(async line => {
     const trimmed = line.trim();
     if (trimmed && !trimmed.startsWith('#')) {
       let absoluteSegUrl = trimmed;
@@ -178,11 +213,13 @@ async function handlePlaylistResponse(upstream: Response, targetUrl: string, wor
         } catch {}
       }
       
-      const encodedSeg = b64Encode(absoluteSegUrl);
-      return `${workerBase}/segment?url=${encodedSeg}${cookiesParam ? `&cookies=${cookiesParam}` : ''}`;
+      const encryptedSegPayload = await encryptPayload(absoluteSegUrl, cookiesStr);
+      return `${workerBase}/segment?p=${encryptedSegPayload}`;
     }
     return line;
   });
+
+  const rewrittenLines = await Promise.all(rewrittenLinesPromises);
 
   // Ensure mandatory HLS headers are present for mobile browser compatibility.
   // iOS Safari and Android Chrome require #EXT-X-VERSION and #EXT-X-MEDIA-SEQUENCE.

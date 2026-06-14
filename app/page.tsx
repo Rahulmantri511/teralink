@@ -263,6 +263,15 @@ function VideoPlayer({ activeFile, workerUrl }: VideoPlayerProps) {
       if (urlStr.includes(".m3u8") || urlStr.includes("/fast_stream?")) {
         return true;
       }
+      if (urlStr.includes("/stream?")) {
+        try {
+          const u = new URL(urlStr, window.location.origin);
+          if (u.searchParams.get("dl") === "1") return false;
+          if (u.pathname.endsWith("/stream") || u.pathname.endsWith("/fast_stream")) {
+            return true;
+          }
+        } catch {}
+      }
       if (urlStr.includes("/stream?url=")) {
         try {
           const u = new URL(urlStr, window.location.origin);

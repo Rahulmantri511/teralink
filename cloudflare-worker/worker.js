@@ -28,6 +28,34 @@ const DOMAINS = [
   'www.terabox.com',
 ];
 
+const ALLOWED_HOSTS = [
+  'terabox.com',
+  '1024tera.com',
+  'terabox.app',
+  'freeterabox.com',
+  'terabytez.com',
+  'teraboxapp.com',
+  '1024terabox.com',
+  'mirrobox.com',
+  'nephobox.com',
+  'momerybox.com',
+  'terabox.fun',
+  'terabox.tech',
+  '4funbox.com',
+  'terasharefile.com',
+  'baidu.com',
+  'baidupcs.com',
+];
+
+function isAllowedHost(rawUrl) {
+  try {
+    const { hostname } = new URL(rawUrl);
+    return ALLOWED_HOSTS.some(h => hostname === h || hostname.endsWith(`.${h}`));
+  } catch {
+    return false;
+  }
+}
+
 // ── Cache layer ───────────────────────────────────────────────────────────────
 // Session and file-list lookups are hit on every /resolve call. Caching them
 // at the edge for a short window (30-60s) dramatically reduces the request
@@ -501,7 +529,7 @@ async function getFileSize(cdnUrl, cookies) {
 
 // ── Generate synthetic M3U8 from byte ranges ──────────────────────────────────
 
-function buildM3U8(workerBase, encodedUrl, encodedCookies, fileSize, filename) {
+function buildM3U8(workerBase, p, fileSize, filename) {
   const chunkSize = BYTES_PER_CHUNK;
   const segments = [];
   let offset = 0;
@@ -526,7 +554,7 @@ function buildM3U8(workerBase, encodedUrl, encodedCookies, fileSize, filename) {
 
   for (const seg of segments) {
     const encodedRange = b64Encode(`${seg.start}-${seg.end}`);
-    const segUrl = `${workerBase}/segment?url=${encodedUrl}&cookies=${encodedCookies}&range=${encodedRange}`;
+    const segUrl = `${workerBase}/segment?p=${encodeURIComponent(p)}&range=${encodedRange}`;
     lines.push(`#EXTINF:${duration},`);
     lines.push(segUrl);
   }
@@ -543,7 +571,7 @@ async function computeStreamSign(browserid, timestamp) {
 
 // ── /share/streaming → HLS m3u8 (30s preview, kept for backwards compat) ──────
 
-async function getStreamingUrl(domain, shareId, uk, fsId, jsToken, browserid, cookies, qualityType = 'M3U8_AUTO_360') {
+async function getStreamingUrl(domain, shareId, uk, fsId, jsToken, browserid, cookies, qualityType = 'M3U8_AUTO_360', encryptionKey = 'default-secret-key-change-me-987') {
   const cookieBrowserid = getCookieValue(cookies, 'browserid') || browserid;
   const timestamp = String(Math.floor(Date.now() / 1000));
   const sign = await hmacSha1(SIGN_KEY, CLIENTTYPE + CHANNEL + cookieBrowserid + timestamp);
@@ -598,9 +626,8 @@ async function getStreamingUrl(domain, shareId, uk, fsId, jsToken, browserid, co
   }
 
   if (finalUrl) {
-    const encodedUrl = b64Encode(finalUrl);
-    const encodedCookies = b64Encode(cookies);
-    return `/stream?url=${encodedUrl}&cookies=${encodedCookies}`;
+    const encrypted = await encryptPayload(finalUrl, cookies, encryptionKey);
+    return `/stream?p=${encrypted}`;
   }
 
   throw new Error('No valid stream URL resolved');
@@ -617,7 +644,7 @@ const MAX_SEQUENTIAL_FALLBACKS = 3;
 
 // ── Main resolve ──────────────────────────────────────────────────────────────
 
-async function resolveFull(shortCode, auth = {}, workerBase = '', dir = '') {
+async function resolveFull(shortCode, auth = {}, workerBase = '', dir = '', encryptionKey = 'default-secret-key-change-me-987') {
   console.log(`[worker] Resolving: ${shortCode}`);
 
   // Construct premium cookies string if provided
@@ -753,11 +780,9 @@ async function resolveFull(shortCode, auth = {}, workerBase = '', dir = '') {
         }
 
         if (fileSize > 0) {
-          const encodedUrl = b64Encode(cdnUrl);
-          const encodedCookies = b64Encode(bestCookies);
+          const encryptedPayload = await encryptPayload(cdnUrl, bestCookies, encryptionKey);
           const fastStreamParams = new URLSearchParams({
-            url:     encodedUrl,
-            cookies: encodedCookies,
+            p:       encryptedPayload,
             size:    String(fileSize),
             name:    f.filename,
           });
@@ -794,7 +819,7 @@ async function resolveFull(shortCode, auth = {}, workerBase = '', dir = '') {
 
       for (const d of streamDomainOrder) {
         try {
-          const streamUrl = await getStreamingUrl(d, shareId, uk, f.fs_id, bestJsToken, bestBrowserid, bestCookies, fallbackQuality);
+          const streamUrl = await getStreamingUrl(d, shareId, uk, f.fs_id, bestJsToken, bestBrowserid, bestCookies, fallbackQuality, encryptionKey);
           if (streamUrl) {
             f.qualities['480'] = streamUrl;
             f.hlsUrl = streamUrl;
@@ -856,7 +881,8 @@ async function resolveFull(shortCode, auth = {}, workerBase = '', dir = '') {
 
     // Direct download link.
     if (f.dlinkResolved) {
-      fastStreamUrlMap['Direct Download'] = `${workerBase}/stream?url=${b64Encode(f.dlinkResolved)}&cookies=${b64Encode(bestCookies)}&dl=1`;
+      const encrypted = await encryptPayload(f.dlinkResolved, bestCookies, encryptionKey);
+      fastStreamUrlMap['Direct Download'] = `${workerBase}/stream?p=${encrypted}&dl=1`;
     }
 
     // Determine primary quality label for the file.
@@ -875,11 +901,11 @@ async function resolveFull(shortCode, auth = {}, workerBase = '', dir = '') {
       is_dir: f.isDir ? "1" : "0",
       duration: "00:00:00",
       quality: primaryQuality,
-      normal_dlink: f.dlinkResolved ? `${workerBase}/stream?url=${b64Encode(f.dlinkResolved)}&cookies=${b64Encode(bestCookies)}&dl=1` : "",
+      normal_dlink: f.dlinkResolved ? `${workerBase}/stream?p=${await encryptPayload(f.dlinkResolved, bestCookies, encryptionKey)}&dl=1` : "",
       stream_url: f.hlsUrl
         ? `${workerBase}${f.hlsUrl}`
         : (f.dlinkResolved
-          ? `${workerBase}/stream?url=${b64Encode(f.dlinkResolved)}&cookies=${b64Encode(bestCookies)}`
+          ? `${workerBase}/stream?p=${await encryptPayload(f.dlinkResolved, bestCookies, encryptionKey)}`
           : (f.fastStreamUrl || "")),
       fast_stream_url: fastStreamUrlMap,
       subtitle_url: "",
@@ -922,6 +948,72 @@ async function resolveFull(shortCode, auth = {}, workerBase = '', dir = '') {
   };
 }
 
+async function deriveKey(password) {
+  const passwordBytes = new TextEncoder().encode(password);
+  const hash = await crypto.subtle.digest('SHA-256', passwordBytes);
+  return crypto.subtle.importKey(
+    'raw',
+    hash,
+    { name: 'AES-GCM' },
+    false,
+    ['encrypt', 'decrypt']
+  );
+}
+
+function arrayBufferToBase64Url(buffer) {
+  let binary = '';
+  const len = buffer.byteLength;
+  const bytes = new Uint8Array(buffer);
+  for (let i = 0; i < len; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary)
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
+}
+
+function base64UrlToArrayBuffer(base64url) {
+  const base64 = base64url.replace(/-/g, '+').replace(/_/g, '/');
+  const binary = atob(base64);
+  const len = binary.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+
+async function decryptPayload(base64url, password) {
+  const key = await deriveKey(password);
+  const combined = base64UrlToArrayBuffer(base64url);
+  const iv = combined.slice(0, 12);
+  const ciphertext = combined.slice(12);
+  const decrypted = await crypto.subtle.decrypt(
+    { name: 'AES-GCM', iv },
+    key,
+    ciphertext
+  );
+  const decryptedText = new TextDecoder().decode(decrypted);
+  return JSON.parse(decryptedText);
+}
+
+async function encryptPayload(url, cookies, password) {
+  const data = JSON.stringify({ url, cookies });
+  const key = await deriveKey(password);
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const encoded = new TextEncoder().encode(data);
+  const encrypted = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv },
+    key,
+    encoded
+  );
+  const combined = new Uint8Array(iv.length + encrypted.byteLength);
+  combined.set(iv, 0);
+  combined.set(new Uint8Array(encrypted), iv.length);
+  return arrayBufferToBase64Url(combined);
+}
+
 // ── CORS ──────────────────────────────────────────────────────────────────────
 
 const CORS = {
@@ -935,6 +1027,13 @@ function jsonResp(data, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
     headers: { 'Content-Type': 'application/json', ...CORS },
+  });
+}
+
+function textResp(text, status = 200) {
+  return new Response(text, {
+    status,
+    headers: { 'Content-Type': 'text/plain', ...CORS },
   });
 }
 
@@ -958,7 +1057,9 @@ export default {
     if (url.pathname === '/resolve') {
       const code = url.searchParams.get('code');
       const dir  = url.searchParams.get('dir') || '';
-      if (!code) return jsonResp({ error: 'Missing ?code=' }, 400);
+      if (!code || !/^[A-Za-z0-9_\-]{6,30}$/.test(code)) {
+        return jsonResp({ error: 'Invalid or malformed ?code=' }, 400);
+      }
       try {
         const auth = {
           ndus:      url.searchParams.get('ndus') || '',
@@ -967,25 +1068,37 @@ export default {
           csrf:      url.searchParams.get('csrf') || '',
           browserid: url.searchParams.get('browserid') || '',
         };
-        const result = await resolveFull(code, auth, workerBase, dir);
+        const encryptionKey = env.ENCRYPTION_KEY || 'default-secret-key-change-me-987';
+        const result = await resolveFull(code, auth, workerBase, dir, encryptionKey);
         return jsonResp(result, result.status === 'success' ? 200 : 500);
       } catch (err) {
         return jsonResp({ error: err?.message ?? 'Worker error' }, 500);
       }
     }
 
-    // GET /fast_stream?url=<b64>&cookies=<b64>&size=<bytes>&name=<filename>
-    // Generates and returns a synthetic M3U8 pointing to /segment for each chunk
+    // GET /fast_stream?p=<encrypted>&size=<bytes>&name=<filename>
     if (url.pathname === '/fast_stream') {
-      const encodedUrl     = url.searchParams.get('url');
-      const encodedCookies = url.searchParams.get('cookies') || '';
-      const size           = parseInt(url.searchParams.get('size') || '0', 10);
-      const name           = url.searchParams.get('name') || 'video.mp4';
+      const p    = url.searchParams.get('p');
+      const size = parseInt(url.searchParams.get('size') || '0', 10);
+      const name = url.searchParams.get('name') || 'video.mp4';
 
-      if (!encodedUrl) return new Response('Missing ?url=', { status: 400 });
-      if (!size)       return new Response('Missing ?size=', { status: 400 });
+      if (!p)    return textResp('Missing ?p=', 400);
+      if (!size) return textResp('Missing ?size=', 400);
 
-      const m3u8 = buildM3U8(workerBase, encodedUrl, encodedCookies, size, name);
+      let targetUrl = '';
+      try {
+        const password = env.ENCRYPTION_KEY || 'default-secret-key-change-me-987';
+        const decrypted = await decryptPayload(p, password);
+        targetUrl = decrypted.url;
+      } catch (err) {
+        return textResp('Invalid ?p=', 400);
+      }
+
+      if (!isAllowedHost(targetUrl)) {
+        return textResp('Host not allowed', 403);
+      }
+
+      const m3u8 = buildM3U8(workerBase, p, size, name);
       return new Response(m3u8, {
         status: 200,
         headers: {
@@ -996,26 +1109,37 @@ export default {
       });
     }
 
-    // GET /segment?url=<b64>&cookies=<b64>&range=<b64-encoded "start-end">
-    // Proxies a byte-range slice (or full file) of the CDN video with CORS headers.
-    // range is optional — when omitted, the request's Range header is forwarded instead.
+    // GET /segment?p=<encrypted>&range=<b64-encoded "start-end">
     if (url.pathname === '/segment') {
-      const encodedUrl     = url.searchParams.get('url');
-      const encodedCookies = url.searchParams.get('cookies') || '';
-      const encodedRange   = url.searchParams.get('range');
+      const p            = url.searchParams.get('p');
+      const encodedRange = url.searchParams.get('range');
 
-      if (!encodedUrl) {
-        return new Response('Missing required params', { status: 400 });
+      if (!p) {
+        return textResp('Missing required ?p= parameter', 400);
       }
 
-      let targetUrl, rangeStr = '';
+      let targetUrl = '';
+      let cookiesStr = '';
       try {
-        targetUrl = b64Decode(encodedUrl);
-        if (encodedRange) {
+        const password = env.ENCRYPTION_KEY || 'default-secret-key-change-me-987';
+        const decrypted = await decryptPayload(p, password);
+        targetUrl = decrypted.url;
+        cookiesStr = decrypted.cookies;
+      } catch (err) {
+        return textResp('Invalid or expired encrypted payload', 400);
+      }
+
+      if (!isAllowedHost(targetUrl)) {
+        return textResp('Host not allowed', 403);
+      }
+
+      let rangeStr = '';
+      if (encodedRange) {
+        try {
           rangeStr = b64Decode(encodedRange); // "start-end"
+        } catch {
+          return textResp('Invalid range parameter', 400);
         }
-      } catch {
-        return new Response('Invalid params', { status: 400 });
       }
 
       // Fallback: if no range in query params, use the incoming request's Range header
@@ -1024,11 +1148,6 @@ export default {
         if (reqRange) {
           rangeStr = reqRange.replace(/^bytes=/, '');
         }
-      }
-
-      let cookiesStr = '';
-      if (encodedCookies) {
-        try { cookiesStr = b64Decode(encodedCookies); } catch {}
       }
 
       const fetchHeaders = {
@@ -1111,22 +1230,24 @@ async function refreshStreamingUrl(targetUrl, cookies) {
   }
 }
 
-    // GET /stream?url=<b64>&cookies=<b64> — proxy with Range + Cookie support
+    // GET /stream?p=<encrypted>&dl=1 — proxy with Range + Cookie support
     if (url.pathname === '/stream') {
-      const encoded = url.searchParams.get('url');
-      if (!encoded) return new Response('Missing ?url=', { status: 400 });
+      const p = url.searchParams.get('p');
+      if (!p) return textResp('Missing ?p=', 400);
 
-      let targetUrl;
+      let targetUrl = '';
+      let cookiesStr = '';
       try {
-        targetUrl = b64Decode(encoded);
-      } catch {
-        targetUrl = decodeURIComponent(encoded);
+        const password = env.ENCRYPTION_KEY || 'default-secret-key-change-me-987';
+        const decrypted = await decryptPayload(p, password);
+        targetUrl = decrypted.url;
+        cookiesStr = decrypted.cookies;
+      } catch (err) {
+        return textResp('Invalid or expired encrypted payload', 400);
       }
 
-      const encodedCookies = url.searchParams.get('cookies') || '';
-      let cookiesStr = '';
-      if (encodedCookies) {
-        try { cookiesStr = b64Decode(encodedCookies); } catch {}
+      if (!isAllowedHost(targetUrl)) {
+        return textResp('Host not allowed', 403);
       }
 
       // Refresh signature dynamically if it is a manifest streaming URL
@@ -1164,7 +1285,7 @@ async function refreshStreamingUrl(targetUrl, cookies) {
         // Rewrite segment paths to route through the worker's /segment proxy.
         // This ensures CORS headers are present, avoiding browser CORS blocks on CDN URLs.
         const lines = text.split('\n');
-        const rewrittenLines = lines.map(line => {
+        const rewrittenLinesPromises = lines.map(async line => {
           const trimmed = line.trim();
           if (trimmed && !trimmed.startsWith('#')) {
             let absoluteSegUrl = trimmed;
@@ -1179,11 +1300,14 @@ async function refreshStreamingUrl(targetUrl, cookies) {
               } catch {}
             }
             // Route segment through worker proxy to add CORS headers
-            const encodedSeg = b64Encode(absoluteSegUrl);
-            return `${workerBase}/segment?url=${encodedSeg}${encodedCookies ? `&cookies=${encodedCookies}` : ''}`;
+            const password = env.ENCRYPTION_KEY || 'default-secret-key-change-me-987';
+            const encryptedSeg = await encryptPayload(absoluteSegUrl, cookiesStr, password);
+            return `${workerBase}/segment?p=${encryptedSeg}`;
           }
           return line;
         });
+
+        const rewrittenLines = await Promise.all(rewrittenLinesPromises);
 
         return new Response(rewrittenLines.join('\n'), {
           status: upstream.status,
@@ -1217,6 +1341,6 @@ async function refreshStreamingUrl(targetUrl, cookies) {
       });
     }
 
-    return new Response('Not found', { status: 404 });
+    return textResp('Not found', 404);
   },
 };

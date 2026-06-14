@@ -1,5 +1,6 @@
 import { ProxyAgent, fetch as undiciFetch } from 'undici';
 import crypto from 'crypto';
+import { encryptPayload } from './crypto';
 
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36';
 const SIGN_KEY = 'iuuPc64E4Fhn0rTXEzrnbLph0o5qyEEa';
@@ -670,11 +671,9 @@ export async function resolveFullLocal(shortCode: string, auth: any = {}, worker
         }
 
         if (fileSize > 0) {
-          const encodedUrl = b64Encode(cdnUrl);
-          const encodedCookies = b64Encode(bestCookies);
+          const encryptedPayload = await encryptPayload(cdnUrl, bestCookies);
           const fastStreamParams = new URLSearchParams({
-            url:     encodedUrl,
-            cookies: encodedCookies,
+            p:       encryptedPayload,
             size:    String(fileSize),
             name:    f.filename,
           });
@@ -752,18 +751,31 @@ export async function resolveFullLocal(shortCode: string, auth: any = {}, worker
 
     if (!f.fastStreamUrl && f.qualities) {
       for (const qKey of Object.keys(f.qualities)) {
-        fastStreamUrlMap[`${qKey}p`] = `/api/stream?url=${b64Encode(f.qualities[qKey])}&cookies=${b64Encode(bestCookies)}`;
+        const encrypted = await encryptPayload(f.qualities[qKey], bestCookies);
+        fastStreamUrlMap[`${qKey}p`] = `/api/stream?p=${encrypted}`;
       }
     }
 
     if (f.dlinkResolved) {
-      fastStreamUrlMap['Direct Download'] = `/api/stream?url=${b64Encode(f.dlinkResolved)}&cookies=${b64Encode(bestCookies)}&dl=1`;
+      const encrypted = await encryptPayload(f.dlinkResolved, bestCookies);
+      fastStreamUrlMap['Direct Download'] = `/api/stream?p=${encrypted}&dl=1`;
     }
 
     let primaryQuality = '360p';
     if (fastStreamUrlMap['480p']) primaryQuality = '480p';
     else if (fastStreamUrlMap['360p']) primaryQuality = '360p';
     else if (Object.keys(fastStreamUrlMap).length > 0) primaryQuality = Object.keys(fastStreamUrlMap)[0];
+
+    let finalStreamUrl = f.fastStreamUrl || '';
+    if (!finalStreamUrl) {
+      if (f.hlsUrl) {
+        const encrypted = await encryptPayload(f.hlsUrl, bestCookies);
+        finalStreamUrl = `/api/stream?p=${encrypted}`;
+      } else if (f.dlinkResolved) {
+        const encrypted = await encryptPayload(f.dlinkResolved, bestCookies);
+        finalStreamUrl = `/api/stream?p=${encrypted}`;
+      }
+    }
 
     filesList.push({
       fs_id: f.fs_id,
@@ -775,12 +787,8 @@ export async function resolveFullLocal(shortCode: string, auth: any = {}, worker
       is_dir: f.isDir ? "1" : "0",
       duration: "00:00:00",
       quality: primaryQuality,
-      normal_dlink: f.dlinkResolved ? `/api/stream?url=${b64Encode(f.dlinkResolved)}&cookies=${b64Encode(bestCookies)}&dl=1` : "",
-      stream_url: f.hlsUrl
-        ? `/api/stream?url=${b64Encode(f.hlsUrl)}&cookies=${b64Encode(bestCookies)}`
-        : (f.dlinkResolved
-          ? `/api/stream?url=${b64Encode(f.dlinkResolved)}&cookies=${b64Encode(bestCookies)}`
-          : (f.fastStreamUrl || "")),
+      normal_dlink: f.dlinkResolved ? `/api/stream?p=${await encryptPayload(f.dlinkResolved, bestCookies)}&dl=1` : "",
+      stream_url: finalStreamUrl,
       fast_stream_url: fastStreamUrlMap,
       subtitle_url: "",
       thumbnail: f.thumbnail,

@@ -57,6 +57,43 @@ function isValidTeraboxUrl(url: string): boolean {
 
 export async function POST(req: Request) {
   try {
+    // Security Origin / Referer Validation
+    const origin = req.headers.get('origin');
+    const referer = req.headers.get('referer');
+    const host = req.headers.get('host') || '';
+    const customAllowedOrigin = process.env.ALLOWED_ORIGIN || '';
+
+    const isDomainAllowed = (domainHost: string) => {
+      if (domainHost === host) return true;
+      if (domainHost.startsWith('localhost:')) return true;
+      if (domainHost.endsWith('.vercel.app')) return true;
+      if (customAllowedOrigin && domainHost === customAllowedOrigin) return true;
+      return false;
+    };
+
+    if (origin) {
+      try {
+        const originUrl = new URL(origin);
+        if (!isDomainAllowed(originUrl.host)) {
+          return NextResponse.json({ error: 'Forbidden origin' }, { status: 403 });
+        }
+      } catch {
+        return NextResponse.json({ error: 'Invalid origin header' }, { status: 400 });
+      }
+    } else if (referer) {
+      try {
+        const refererUrl = new URL(referer);
+        if (!isDomainAllowed(refererUrl.host)) {
+          return NextResponse.json({ error: 'Forbidden referer' }, { status: 403 });
+        }
+      } catch {
+        return NextResponse.json({ error: 'Invalid referer header' }, { status: 400 });
+      }
+    } else {
+      // Require Origin or Referer to block simple CLI/script bots
+      return NextResponse.json({ error: 'Missing origin or referer header' }, { status: 403 });
+    }
+
     const body = await req.json().catch(() => ({}));
     const { url, dir } = body ?? {};
 
@@ -73,9 +110,9 @@ export async function POST(req: Request) {
     }
 
     const code = extractShortCode(trimmed);
-    if (!code) {
+    if (!code || !/^[A-Za-z0-9_\-]{6,30}$/.test(code)) {
       return NextResponse.json({
-        error: 'Could not extract short code. Use format: https://terabox.com/s/1ABC',
+        error: 'Invalid or malformed short code. Verify your TeraBox link.',
       }, { status: 400 });
     }
 
