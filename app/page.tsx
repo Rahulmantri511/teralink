@@ -1164,74 +1164,417 @@ export default function Home() {
     );
   }
 
+  const jsonLd = {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "TeraLink",
+    "operatingSystem": "All",
+    "applicationCategory": "MultimediaApplication",
+    "offers": {
+      "@type": "Offer",
+      "price": "0.00",
+      "priceCurrency": "USD"
+    },
+    "description": "Stream TeraBox videos online or generate high-speed direct download links without downloading the app. Free, ad-free, and works on Android, iOS, and PC.",
+    "softwareVersion": "1.0.0"
+  };
+
   return (
     <>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      />
       <style>{`
-        /* Reset & base styling */
-        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-        :root {
-          --bg:       #0b0d12;
-          --surface:  #12151e;
-          --surface2: #1a1e2b;
-          --border:   #252836;
-          --accent:   #5c6ef8;
-          --accent2:  #9b5cf8;
-          --text:     #e8eaf6;
-          --muted:    #7b82a8;
-          --radius:   14px;
+        /* ── Page Layout ─────────────────────────────────────────────────── */
+        .page {
+          min-height: 100vh;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          padding: 48px 16px 100px;
+          position: relative;
+          z-index: 1;
         }
-        html, body { min-height: 100vh; background: var(--bg); color: var(--text); font-family: 'Inter', system-ui, sans-serif; }
+        .card { width: 100%; max-width: 900px; }
 
-        .page { min-height: 100vh; display: flex; flex-direction: column; align-items: center; padding: 40px 16px 80px; }
-        .card { width: 100%; max-width: 860px; }
+        /* ── Hero Header ─────────────────────────────────────────────────── */
+        .header {
+          text-align: center;
+          margin-bottom: 40px;
+          animation: fadeInDown 0.7s ease both;
+        }
+        @keyframes fadeInDown {
+          from { opacity: 0; transform: translateY(-24px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+        .header-badge {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          padding: 5px 14px;
+          border-radius: 100px;
+          background: rgba(99, 102, 241, 0.12);
+          border: 1px solid rgba(99, 102, 241, 0.3);
+          font-size: 0.75rem;
+          font-weight: 600;
+          color: #a5b4fc;
+          letter-spacing: 0.04em;
+          text-transform: uppercase;
+          margin-bottom: 20px;
+        }
+        .header-badge-dot {
+          width: 6px; height: 6px;
+          border-radius: 50%;
+          background: #6366f1;
+          box-shadow: 0 0 6px #6366f1;
+          animation: pulse-dot 2s ease-in-out infinite;
+        }
+        @keyframes pulse-dot {
+          0%, 100% { opacity: 1; transform: scale(1); }
+          50%       { opacity: 0.5; transform: scale(0.8); }
+        }
+        .header-logo {
+          font-family: 'Plus Jakarta Sans', 'Inter', sans-serif;
+          font-size: clamp(2.4rem, 6vw, 3.6rem);
+          font-weight: 800;
+          letter-spacing: -0.02em;
+          line-height: 1.1;
+          background: linear-gradient(135deg, #818cf8 0%, #a78bfa 40%, #c084fc 100%);
+          -webkit-background-clip: text;
+          -webkit-text-fill-color: transparent;
+          background-clip: text;
+          margin-bottom: 12px;
+        }
+        .header-sub {
+          font-size: 1.05rem;
+          color: var(--text2);
+          max-width: 520px;
+          margin: 0 auto 20px;
+          line-height: 1.6;
+        }
+        .header-pills {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 10px;
+          flex-wrap: wrap;
+          margin-top: 4px;
+        }
+        .pill {
+          display: inline-flex;
+          align-items: center;
+          gap: 5px;
+          padding: 4px 12px;
+          border-radius: 100px;
+          background: rgba(255, 255, 255, 0.05);
+          border: 1px solid rgba(255, 255, 255, 0.08);
+          font-size: 0.78rem;
+          color: var(--text2);
+          font-weight: 500;
+        }
 
-        .header { text-align: center; margin-bottom: 36px; }
-        .header-logo { font-size: 2.6rem; font-weight: 800; background: linear-gradient(135deg, var(--accent), var(--accent2)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-        .header-sub { color: var(--muted); font-size: .93rem; margin-top: 6px; }
-
-        .input-row { display: flex; gap: 10px; margin-bottom: 14px; transition: all 0.3s ease; }
-        .url-input { flex: 1; background: var(--surface); border: 1.5px solid var(--border); border-radius: var(--radius); padding: 14px 18px; color: var(--text); outline: none; transition: all 0.2s ease-in-out; }
-        .url-input:hover { border-color: rgba(92, 110, 248, 0.4); }
-        .url-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(92, 110, 248, 0.15); }
-        .play-btn { padding: 14px 28px; border-radius: var(--radius); border: none; background: linear-gradient(135deg, var(--accent), var(--accent2)); color: #fff; font-weight: 600; cursor: pointer; transition: all 0.2s ease-in-out; }
-        .play-btn:hover { opacity: 0.9; transform: translateY(-1px); }
+        /* ── Search / Input Section ──────────────────────────────────────── */
+        .input-section {
+          margin-bottom: 20px;
+          animation: fadeInUp 0.7s 0.15s ease both;
+        }
+        @keyframes fadeInUp {
+          from { opacity: 0; transform: translateY(20px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+        .input-glass {
+          background: rgba(17, 20, 34, 0.7);
+          backdrop-filter: blur(24px);
+          -webkit-backdrop-filter: blur(24px);
+          border: 1px solid rgba(255, 255, 255, 0.1);
+          border-radius: 20px;
+          padding: 6px 6px 6px 20px;
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          transition: border-color 0.3s ease, box-shadow 0.3s ease;
+          box-shadow: 0 4px 24px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.05);
+        }
+        .input-glass:focus-within {
+          border-color: rgba(99, 102, 241, 0.6);
+          box-shadow: 0 4px 24px rgba(0,0,0,0.4), 0 0 0 3px rgba(99,102,241,0.12), inset 0 1px 0 rgba(255,255,255,0.05);
+        }
+        .input-icon {
+          color: var(--text3);
+          flex-shrink: 0;
+          display: flex;
+        }
+        .url-input {
+          flex: 1;
+          background: transparent;
+          border: none;
+          outline: none;
+          color: var(--text);
+          font-size: 0.95rem;
+          font-family: inherit;
+          padding: 10px 0;
+          min-width: 0;
+        }
+        .url-input::placeholder { color: var(--text3); }
+        .play-btn {
+          padding: 12px 28px;
+          border-radius: 14px;
+          border: none;
+          background: linear-gradient(135deg, #6366f1, #a855f7);
+          color: #fff;
+          font-weight: 700;
+          font-size: 0.9rem;
+          font-family: inherit;
+          cursor: pointer;
+          transition: all 0.2s ease;
+          box-shadow: 0 4px 15px rgba(99, 102, 241, 0.4);
+          white-space: nowrap;
+          flex-shrink: 0;
+          position: relative;
+          overflow: hidden;
+        }
+        .play-btn::after {
+          content: '';
+          position: absolute;
+          inset: 0;
+          background: linear-gradient(135deg, rgba(255,255,255,0.15), transparent);
+          opacity: 0;
+          transition: opacity 0.2s;
+        }
+        .play-btn:hover::after { opacity: 1; }
+        .play-btn:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 6px 25px rgba(99, 102, 241, 0.5);
+        }
         .play-btn:active { transform: translateY(0); }
-        .status-bar { padding: 12px 16px; border-radius: 10px; background: rgba(92,110,248,.12); color: #a0aaff; margin-bottom: 14px; }
-        .error-box { padding: 14px 18px; border-radius: 10px; background: rgba(239,68,68,.1); color: #fca5a5; margin-bottom: 14px; }
+        .play-btn:disabled {
+          opacity: 0.7;
+          cursor: not-allowed;
+          transform: none;
+        }
 
-        .file-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
-        .file-row { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-radius: 10px; background: var(--surface); border: 1.5px solid var(--border); cursor: pointer; transition: all 0.2s ease-in-out; }
-        .file-row:hover { border-color: rgba(255, 255, 255, 0.15); background: var(--surface2); transform: translateY(-1px); }
-        .file-row.active { border-color: var(--accent); background: rgba(92,110,248,.14); }
-        .file-row.active:hover { background: rgba(92,110,248,.18); }
-        .file-row.folder-row { border-left: 4px solid #f59e0b; }
-        .file-row.go-back-row { border-style: dashed; background: rgba(255, 255, 255, 0.02); opacity: 0.85; }
-        .file-row.go-back-row:hover { background: rgba(255, 255, 255, 0.05); opacity: 1; transform: translateY(-1px); }
-        .file-icon { font-size: 1.4rem; }
+        /* ── Status / Error ──────────────────────────────────────────────── */
+        .status-bar {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          padding: 12px 16px;
+          border-radius: 12px;
+          background: rgba(99, 102, 241, 0.1);
+          border: 1px solid rgba(99, 102, 241, 0.2);
+          color: #a5b4fc;
+          font-size: 0.88rem;
+          margin-bottom: 14px;
+          animation: fadeInUp 0.3s ease both;
+        }
+        .status-spinner {
+          width: 14px; height: 14px;
+          border: 2px solid rgba(99, 102, 241, 0.3);
+          border-top-color: #6366f1;
+          border-radius: 50%;
+          animation: spin 0.8s linear infinite;
+          flex-shrink: 0;
+        }
+        .error-box {
+          display: flex;
+          align-items: flex-start;
+          gap: 10px;
+          padding: 14px 18px;
+          border-radius: 12px;
+          background: rgba(239, 68, 68, 0.08);
+          border: 1px solid rgba(239, 68, 68, 0.2);
+          color: #fca5a5;
+          font-size: 0.88rem;
+          margin-bottom: 14px;
+          animation: fadeInUp 0.3s ease both;
+        }
+
+        /* ── File List ───────────────────────────────────────────────────── */
+        .file-list {
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+          margin-bottom: 16px;
+          animation: fadeInUp 0.5s 0.1s ease both;
+        }
+        .file-list-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 8px 4px;
+          margin-bottom: 4px;
+        }
+        .file-list-title {
+          font-size: 0.75rem;
+          font-weight: 600;
+          text-transform: uppercase;
+          letter-spacing: 0.07em;
+          color: var(--text3);
+        }
+        .file-list-count {
+          font-size: 0.72rem;
+          color: var(--text3);
+          background: rgba(255,255,255,0.05);
+          padding: 2px 8px;
+          border-radius: 100px;
+          border: 1px solid rgba(255,255,255,0.07);
+        }
+        .file-row {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          padding: 13px 16px;
+          border-radius: 12px;
+          background: rgba(17, 20, 34, 0.6);
+          border: 1px solid rgba(255, 255, 255, 0.06);
+          cursor: pointer;
+          transition: all 0.2s ease;
+          backdrop-filter: blur(8px);
+        }
+        .file-row:hover {
+          border-color: rgba(255, 255, 255, 0.12);
+          background: rgba(24, 28, 46, 0.8);
+          transform: translateY(-1px);
+          box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+        }
+        .file-row.active {
+          border-color: rgba(99, 102, 241, 0.5);
+          background: rgba(99, 102, 241, 0.1);
+          box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.2) inset;
+        }
+        .file-row.active:hover { background: rgba(99, 102, 241, 0.15); }
+        .file-row.folder-row { border-left: 3px solid #f59e0b; }
+        .file-row.go-back-row {
+          border-style: dashed;
+          background: rgba(255, 255, 255, 0.02);
+          opacity: 0.75;
+        }
+        .file-row.go-back-row:hover { opacity: 1; transform: translateY(-1px); }
+        .file-icon-wrap {
+          width: 38px; height: 38px;
+          border-radius: 10px;
+          background: rgba(255,255,255,0.05);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 1.2rem;
+          flex-shrink: 0;
+        }
+        .file-row.active .file-icon-wrap {
+          background: rgba(99, 102, 241, 0.2);
+        }
         .file-meta { flex: 1; min-width: 0; }
-        .file-name { font-size: .9rem; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .file-size { font-size: .78rem; color: var(--muted); }
+        .file-name {
+          font-size: 0.88rem;
+          font-weight: 500;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          color: var(--text);
+          margin-bottom: 3px;
+        }
+        .file-row.active .file-name { color: #c7d2fe; }
+        .file-size {
+          font-size: 0.74rem;
+          color: var(--text3);
+          display: flex;
+          align-items: center;
+          gap: 6px;
+        }
+        .file-type-badge {
+          display: inline-block;
+          padding: 1px 7px;
+          border-radius: 4px;
+          font-size: 0.65rem;
+          font-weight: 700;
+          letter-spacing: 0.05em;
+          text-transform: uppercase;
+        }
+        .badge-video { background: rgba(99,102,241,0.15); color: #818cf8; }
+        .badge-audio { background: rgba(16,185,129,0.12); color: #34d399; }
+        .badge-image { background: rgba(245,158,11,0.12); color: #fbbf24; }
+        .badge-folder { background: rgba(245,158,11,0.15); color: #f59e0b; }
+        .badge-file { background: rgba(255,255,255,0.05); color: var(--text3); }
         .file-dl { flex-shrink: 0; }
-        .icon-btn { background: none; border: none; cursor: pointer; padding: 6px 8px; color: var(--muted); font-size: 1rem; transition: color 0.2s; }
-        .icon-btn:hover { color: #fff; }
+        .icon-btn {
+          background: rgba(255,255,255,0.05);
+          border: 1px solid rgba(255,255,255,0.08);
+          border-radius: 8px;
+          cursor: pointer;
+          padding: 6px 10px;
+          color: var(--text3);
+          font-size: 0.9rem;
+          transition: all 0.2s;
+          text-decoration: none;
+          display: inline-flex;
+          align-items: center;
+        }
+        .icon-btn:hover {
+          color: #fff;
+          background: rgba(99,102,241,0.15);
+          border-color: rgba(99,102,241,0.3);
+        }
 
+        /* ── Empty State ─────────────────────────────────────────────────── */
+        .empty {
+          padding: 72px 20px;
+          text-align: center;
+          border: 1.5px dashed rgba(255,255,255,0.08);
+          border-radius: 20px;
+          animation: fadeInUp 0.5s ease both;
+        }
+        .empty-icon {
+          font-size: 4rem;
+          margin-bottom: 16px;
+          display: block;
+          filter: grayscale(0.3);
+        }
+        .empty-title {
+          color: var(--text2);
+          font-size: 1.05rem;
+          font-weight: 500;
+          margin-bottom: 8px;
+        }
+        .empty-sub {
+          color: var(--text3);
+          font-size: 0.82rem;
+        }
+        .empty-domains {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 8px;
+          flex-wrap: wrap;
+          margin-top: 16px;
+        }
+        .empty-domain {
+          padding: 4px 12px;
+          border-radius: 100px;
+          background: rgba(255,255,255,0.04);
+          border: 1px solid rgba(255,255,255,0.07);
+          font-size: 0.74rem;
+          color: var(--text3);
+        }
+
+        /* ── Player Section ──────────────────────────────────────────────── */
+        .player-section-wrap {
+          animation: fadeInUp 0.4s ease both;
+        }
         .player-section { display: flex; flex-direction: column; gap: 12px; }
-        
         .active-file-details {
           display: flex;
           align-items: center;
           justify-content: space-between;
           padding: 16px 20px;
-          background: var(--surface);
-          border: 1.5px solid var(--border);
-          border-radius: var(--radius);
+          background: rgba(17, 20, 34, 0.7);
+          border: 1px solid rgba(255, 255, 255, 0.08);
+          border-radius: 14px;
           margin-top: 14px;
           gap: 16px;
+          backdrop-filter: blur(12px);
         }
-        .file-details-meta {
-          flex: 1;
-          min-width: 0;
-        }
+        .file-details-meta { flex: 1; min-width: 0; }
         .file-details-meta h3 {
           font-size: 0.95rem;
           font-weight: 600;
@@ -1241,91 +1584,101 @@ export default function Home() {
           text-overflow: ellipsis;
           margin-bottom: 4px;
         }
-        .file-details-size {
-          font-size: 0.8rem;
-          color: var(--muted);
-        }
+        .file-details-size { font-size: 0.8rem; color: var(--text3); }
         .details-dl-btn {
           display: inline-flex;
           align-items: center;
           gap: 8px;
           padding: 10px 20px;
-          border-radius: 8px;
+          border-radius: 10px;
           font-weight: 600;
-          background: linear-gradient(135deg, var(--accent), var(--accent2));
+          background: linear-gradient(135deg, #6366f1, #a855f7);
           color: #fff;
           text-decoration: none;
           font-size: 0.85rem;
           white-space: nowrap;
-          transition: opacity 0.2s;
+          transition: all 0.2s;
           border: none;
           cursor: pointer;
           font-family: inherit;
+          box-shadow: 0 4px 14px rgba(99,102,241,0.35);
         }
         .details-dl-btn:hover:not(:disabled) {
           opacity: 0.9;
+          transform: translateY(-1px);
+          box-shadow: 0 6px 20px rgba(99,102,241,0.45);
         }
         .details-dl-btn:disabled, .dl-progress-btn {
-          opacity: 0.75;
+          opacity: 0.7;
           cursor: wait;
           background: linear-gradient(135deg, #3a4a9a, #6a3a9a);
         }
 
-        /* Loading Spinner */
-        .player-loading-overlay {
-          position: absolute;
-          inset: 0;
-          background: rgba(0, 0, 0, 0.4);
+        /* ── Audio/Image/Generic Wrappers ────────────────────────────────── */
+        .player-wrap { border-radius: 16px; overflow: hidden; }
+        .audio-wrap {
           display: flex;
+          flex-direction: column;
           align-items: center;
-          justify-content: center;
-          z-index: 3;
+          gap: 14px;
+          padding: 48px 20px;
+          background: rgba(17, 20, 34, 0.7);
+          border: 1px solid rgba(255, 255, 255, 0.08);
         }
-
-        .spinner {
-          width: 48px;
-          height: 48px;
-          border: 4px solid rgba(255, 255, 255, 0.1);
-          border-left-color: var(--accent);
-          border-radius: 50%;
-          animation: spin 1s linear infinite;
-        }
-
-        @keyframes spin {
-          0% { transform: rotate(0deg); }
-          100% { transform: rotate(360deg); }
-        }
-
-        .audio-wrap { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 40px 20px; background: var(--surface); }
-        .audio-icon { font-size: 3rem; }
-        .audio-name { color: var(--muted); font-size: .9rem; }
+        .audio-icon { font-size: 3.5rem; }
+        .audio-name { color: var(--text3); font-size: .9rem; text-align: center; }
         .audio-el { width: 100%; max-width: 480px; }
-        .img-wrap { display: flex; justify-content: center; background: var(--surface); padding: 12px; }
-        .player-img { max-width: 100%; max-height: 70vh; object-fit: contain; border-radius: 8px; }
-        .generic-wrap { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 48px 20px; background: var(--surface); }
+        .img-wrap {
+          display: flex;
+          justify-content: center;
+          background: rgba(17, 20, 34, 0.7);
+          padding: 16px;
+          border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+        .player-img { max-width: 100%; max-height: 70vh; object-fit: contain; border-radius: 10px; }
+        .generic-wrap {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 16px;
+          padding: 56px 20px;
+          background: rgba(17, 20, 34, 0.7);
+          border: 1px solid rgba(255, 255, 255, 0.08);
+        }
         .generic-icon { font-size: 3.5rem; }
-        .generic-name { color: var(--muted); font-size: .9rem; }
-        .dl-btn { display: inline-flex; align-items: center; gap: 6px; padding: 12px 24px; border-radius: 10px; font-weight: 600; background: linear-gradient(135deg, var(--accent), var(--accent2)); color: #fff; text-decoration: none; font-size: .9rem; }
+        .generic-name { color: var(--text3); font-size: .9rem; }
+        .dl-btn {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          padding: 12px 24px;
+          border-radius: 12px;
+          font-weight: 600;
+          background: linear-gradient(135deg, #6366f1, #a855f7);
+          color: #fff;
+          text-decoration: none;
+          font-size: .9rem;
+          transition: all 0.2s;
+          box-shadow: 0 4px 14px rgba(99,102,241,0.35);
+        }
+        .dl-btn:hover { transform: translateY(-1px); opacity: 0.9; }
 
-        .empty { padding: 60px 20px; text-align: center; border: 1.5px dashed var(--border); border-radius: var(--radius); }
-        .empty-icon { font-size: 3.5rem; }
-        .empty-title { color: var(--muted); font-size: 1rem; }
-        .empty-sub { color: var(--border); font-size: .83rem; }
-        /* Custom Video Player Styles */
+        /* ── Custom Video Player ─────────────────────────────────────────── */
         .custom-player-container {
           position: relative;
           width: 100%;
           aspect-ratio: 16/9;
           background: #000;
-          border-radius: var(--radius);
-          border: 1.5px solid var(--border);
+          border-radius: 16px;
+          border: 1px solid rgba(255, 255, 255, 0.08);
           overflow: hidden;
           outline: none;
-          box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5);
+          box-shadow: 0 20px 60px rgba(0,0,0,0.6), 0 0 0 1px rgba(99,102,241,0.05);
           transition: border-color 0.3s ease;
         }
         .custom-player-container:focus-within {
-          border-color: var(--accent);
+          border-color: rgba(99, 102, 241, 0.4);
+          box-shadow: 0 20px 60px rgba(0,0,0,0.6), 0 0 0 3px rgba(99,102,241,0.1);
         }
         .custom-player-container.fullscreen {
           width: 100vw;
@@ -1334,10 +1687,7 @@ export default function Home() {
           border-radius: 0;
           border: none;
         }
-        .custom-player-container.hide-cursor {
-          cursor: none;
-        }
-
+        .custom-player-container.hide-cursor { cursor: none; }
         .video-viewport {
           position: relative;
           width: 100%;
@@ -1346,14 +1696,13 @@ export default function Home() {
           align-items: center;
           justify-content: center;
         }
-        
         .player-video {
           width: 100%;
           height: 100%;
           object-fit: contain;
         }
 
-        /* Loading / Buffering */
+        /* ── Buffering/Loading ───────────────────────────────────────────── */
         .player-loading-overlay {
           position: absolute;
           inset: 0;
@@ -1364,15 +1713,19 @@ export default function Home() {
           z-index: 5;
         }
         .spinner {
-          width: 50px;
-          height: 50px;
-          border: 4px solid rgba(255, 255, 255, 0.1);
-          border-left-color: var(--accent);
+          width: 48px;
+          height: 48px;
+          border: 3px solid rgba(255, 255, 255, 0.1);
+          border-left-color: #6366f1;
           border-radius: 50%;
-          animation: spin 1s linear infinite;
+          animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
         }
 
-        /* Transient Indicators (play/pause overlay animations) */
+        /* ── Transient Indicator ─────────────────────────────────────────── */
         .transient-indicator-overlay {
           position: absolute;
           inset: 0;
@@ -1383,7 +1736,7 @@ export default function Home() {
           pointer-events: none;
         }
         .indicator-icon {
-          background: rgba(0, 0, 0, 0.6);
+          background: rgba(0, 0, 0, 0.65);
           border-radius: 50%;
           padding: 20px;
           display: flex;
@@ -1398,11 +1751,11 @@ export default function Home() {
           100% { transform: scale(1); opacity: 0; }
         }
 
-        /* Player Error */
+        /* ── Player Error ────────────────────────────────────────────────── */
         .player-error-overlay {
           position: absolute;
           inset: 0;
-          background: rgba(11, 13, 18, 0.95);
+          background: rgba(6, 8, 18, 0.95);
           display: flex;
           flex-direction: column;
           align-items: center;
@@ -1411,10 +1764,7 @@ export default function Home() {
           padding: 24px;
           text-align: center;
         }
-        .error-icon {
-          font-size: 3rem;
-          margin-bottom: 16px;
-        }
+        .error-icon { font-size: 3rem; margin-bottom: 16px; }
         .error-message {
           color: #fca5a5;
           max-width: 500px;
@@ -1423,31 +1773,32 @@ export default function Home() {
           line-height: 1.5;
         }
         .retry-btn {
-          padding: 10px 20px;
-          background: var(--surface2);
-          border: 1.5px solid var(--border);
+          padding: 10px 22px;
+          background: rgba(255,255,255,0.06);
+          border: 1px solid rgba(255,255,255,0.12);
           color: var(--text);
-          border-radius: 8px;
+          border-radius: 10px;
           cursor: pointer;
           font-weight: 600;
           transition: all 0.2s;
+          font-family: inherit;
         }
         .retry-btn:hover {
-          background: var(--border);
-          border-color: var(--accent);
+          background: rgba(99,102,241,0.15);
+          border-color: rgba(99,102,241,0.4);
         }
 
-        /* Control Bar Container */
+        /* ── Player Controls Bar ─────────────────────────────────────────── */
         .player-controls-bar {
           position: absolute;
           bottom: 0;
           left: 0;
           right: 0;
-          background: linear-gradient(to top, rgba(11, 13, 18, 0.95), rgba(11, 13, 18, 0.4) 70%, transparent);
-          padding: 24px 20px 16px;
+          background: linear-gradient(to top, rgba(0,0,0,0.92), rgba(0,0,0,0.5) 70%, transparent);
+          padding: 28px 20px 16px;
           z-index: 10;
           opacity: 0;
-          transform: translateY(10px);
+          transform: translateY(8px);
           transition: opacity 0.3s ease, transform 0.3s ease;
           pointer-events: none;
         }
@@ -1459,52 +1810,42 @@ export default function Home() {
           pointer-events: auto;
         }
 
-        /* Timeline Scrubber */
+        /* ── Timeline Scrubber ───────────────────────────────────────────── */
         .timeline-container {
           position: relative;
           width: 100%;
-          height: 16px;
+          height: 18px;
           display: flex;
           align-items: center;
           cursor: pointer;
-          margin-bottom: 12px;
+          margin-bottom: 10px;
         }
         .timeline-rail {
           position: relative;
           width: 100%;
-          height: 4px;
-          background: rgba(255, 255, 255, 0.2);
+          height: 3px;
+          background: rgba(255, 255, 255, 0.15);
           border-radius: 2px;
           overflow: hidden;
-          transition: height 0.1s ease;
+          transition: height 0.15s ease;
         }
-        .timeline-container:hover .timeline-rail {
-          height: 6px;
-        }
-        .timeline-bg {
-          position: absolute;
-          inset: 0;
-        }
+        .timeline-container:hover .timeline-rail { height: 5px; }
+        .timeline-bg { position: absolute; inset: 0; }
         .timeline-buffered {
           position: absolute;
-          left: 0;
-          top: 0;
-          bottom: 0;
-          background: rgba(255, 255, 255, 0.35);
+          left: 0; top: 0; bottom: 0;
+          background: rgba(255, 255, 255, 0.3);
           border-radius: 2px;
         }
         .timeline-current {
           position: absolute;
-          left: 0;
-          top: 0;
-          bottom: 0;
-          background: linear-gradient(90deg, var(--accent), var(--accent2));
+          left: 0; top: 0; bottom: 0;
+          background: linear-gradient(90deg, #6366f1, #a855f7);
           border-radius: 2px;
         }
         .timeline-slider {
           position: absolute;
-          left: 0;
-          top: 0;
+          left: 0; top: 0;
           width: 100%;
           height: 100%;
           opacity: 0;
@@ -1513,7 +1854,7 @@ export default function Home() {
           margin: 0;
         }
 
-        /* Controls Row */
+        /* ── Controls Row ────────────────────────────────────────────────── */
         .controls-row {
           display: flex;
           align-items: center;
@@ -1522,33 +1863,29 @@ export default function Home() {
         .controls-left, .controls-right {
           display: flex;
           align-items: center;
-          gap: 12px;
+          gap: 8px;
         }
-
         .control-btn {
           background: none;
           border: none;
-          color: #fff;
-          opacity: 0.85;
+          color: rgba(255,255,255,0.85);
           cursor: pointer;
           padding: 8px;
           border-radius: 50%;
           display: flex;
           align-items: center;
           justify-content: center;
-          transition: all 0.2s;
+          transition: all 0.18s;
+          font-family: inherit;
         }
         .control-btn:hover {
-          opacity: 1;
+          color: #fff;
           background: rgba(255, 255, 255, 0.1);
-          transform: scale(1.08);
+          transform: scale(1.1);
         }
-        .control-btn.active {
-          color: var(--accent);
-          opacity: 1;
-        }
+        .control-btn.active { color: #818cf8; }
 
-        /* Volume Controls */
+        /* ── Volume ──────────────────────────────────────────────────────── */
         .volume-control-wrap {
           display: flex;
           align-items: center;
@@ -1556,8 +1893,8 @@ export default function Home() {
         }
         .volume-slider {
           width: 0;
-          height: 4px;
-          background: rgba(255, 255, 255, 0.3);
+          height: 3px;
+          background: rgba(255, 255, 255, 0.25);
           border-radius: 2px;
           appearance: none;
           outline: none;
@@ -1566,73 +1903,77 @@ export default function Home() {
           cursor: pointer;
         }
         .volume-control-wrap:hover .volume-slider,
-        .volume-slider:focus {
-          width: 70px;
-          opacity: 1;
-        }
-        .volume-slider::-webkit-slider-runnable-track {
-          background: transparent;
-        }
+        .volume-slider:focus { width: 70px; opacity: 1; }
+        .volume-slider::-webkit-slider-runnable-track { background: transparent; }
         .volume-slider::-webkit-slider-thumb {
           appearance: none;
-          width: 10px;
-          height: 10px;
+          width: 10px; height: 10px;
           border-radius: 50%;
           background: #fff;
-          box-shadow: 0 0 2px rgba(0,0,0,0.5);
-          margin-top: -3px;
+          cursor: pointer;
+          margin-top: -4px;
         }
 
-        /* Time Display */
+        /* ── Time Display ────────────────────────────────────────────────── */
         .time-display {
-          font-size: 0.82rem;
-          color: rgba(255, 255, 255, 0.8);
-          font-weight: 500;
-          margin-left: 6px;
+          font-size: 0.75rem;
+          font-variant-numeric: tabular-nums;
+          color: rgba(255,255,255,0.75);
+          padding: 0 4px;
+        }
+
+        /* ── Quality / Settings Panel ────────────────────────────────────── */
+        .quality-wrap {
           display: flex;
           align-items: center;
           gap: 4px;
+          background: rgba(0,0,0,0.4);
+          border-radius: 100px;
+          padding: 2px;
         }
-        .time-divider {
-          color: rgba(255, 255, 255, 0.4);
+        .quality-btn {
+          background: none;
+          border: none;
+          color: rgba(255,255,255,0.65);
+          cursor: pointer;
+          padding: 4px 10px;
+          border-radius: 100px;
+          font-size: 0.72rem;
+          font-weight: 600;
+          font-family: inherit;
+          transition: all 0.15s;
         }
-        .total-time {
-          color: rgba(255, 255, 255, 0.55);
+        .quality-btn.active {
+          background: linear-gradient(135deg, #6366f1, #a855f7);
+          color: #fff;
         }
-
-        /* Settings Menu & Popover */
-        .settings-menu-wrap {
-          position: relative;
+        .quality-btn:hover:not(.active) {
+          background: rgba(255,255,255,0.1);
+          color: #fff;
         }
-        .settings-popover {
+        .settings-panel {
           position: absolute;
-          bottom: 45px;
-          right: 0;
-          background: rgba(18, 21, 30, 0.95);
-          backdrop-filter: blur(12px);
-          border: 1.5px solid var(--border);
-          border-radius: 12px;
+          bottom: calc(100% + 12px);
+          right: 12px;
+          background: rgba(17, 20, 34, 0.97);
+          backdrop-filter: blur(20px);
+          border: 1px solid rgba(255,255,255,0.1);
+          border-radius: 14px;
           padding: 16px;
-          width: 240px;
-          box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3);
-          z-index: 12;
-          display: flex;
-          flex-direction: column;
-          gap: 16px;
+          min-width: 200px;
+          z-index: 20;
+          box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+          animation: fadeInUp 0.15s ease;
         }
-        .settings-group {
-          display: flex;
-          flex-direction: column;
-          gap: 8px;
-        }
+        .settings-group { margin-bottom: 14px; }
+        .settings-group:last-child { margin-bottom: 0; }
         .settings-title {
-          font-size: 0.75rem;
-          text-transform: uppercase;
-          letter-spacing: 0.05em;
-          color: var(--muted);
+          font-size: 0.72rem;
           font-weight: 700;
-          border-bottom: 1.5px solid var(--border);
-          padding-bottom: 6px;
+          text-transform: uppercase;
+          letter-spacing: 0.08em;
+          color: var(--text3);
+          margin-bottom: 8px;
         }
         .settings-options {
           display: flex;
@@ -1640,196 +1981,439 @@ export default function Home() {
           gap: 6px;
         }
         .settings-opt-btn {
-          flex: 1;
-          min-width: 60px;
-          background: var(--surface2);
-          border: 1px solid var(--border);
-          color: var(--text);
-          font-size: 0.78rem;
-          padding: 6px;
-          border-radius: 6px;
-          cursor: pointer;
+          background: rgba(255,255,255,0.05);
+          border: 1px solid rgba(255,255,255,0.1);
+          border-radius: 8px;
+          color: var(--text2);
+          font-size: 0.8rem;
           font-weight: 500;
-          transition: all 0.2s;
+          padding: 5px 12px;
+          cursor: pointer;
+          transition: all 0.15s;
+          font-family: inherit;
         }
         .settings-opt-btn:hover {
-          border-color: var(--accent);
-          background: rgba(92, 110, 248, 0.15);
+          background: rgba(99,102,241,0.15);
+          border-color: rgba(99,102,241,0.3);
+          color: #fff;
         }
         .settings-opt-btn.active {
-          background: var(--accent);
-          border-color: var(--accent);
-          color: #fff;
-          font-weight: 600;
+          background: rgba(99,102,241,0.2);
+          border-color: rgba(99,102,241,0.5);
+          color: #a5b4fc;
         }
+        .speed-opts { display: flex; gap: 6px; }
 
-        .footer { margin-top: 32px; text-align: center; font-size: .78rem; color: var(--border); }
-
-        /* Mobile responsive adjustments */
-        @media (max-width: 768px) {
-          .page {
-            padding: 24px 12px 60px;
-          }
-          .header {
-            margin-bottom: 24px;
-          }
-          .header-logo {
-            font-size: 2.1rem;
-          }
-          .custom-player-container {
-            border-radius: 8px;
-          }
-          .active-file-details {
-            padding: 12px 14px;
-            flex-direction: column;
-            align-items: stretch;
-            gap: 12px;
-          }
-          .details-dl-btn {
-            justify-content: center;
-            padding: 12px;
-            font-size: 0.9rem;
-          }
-          .file-row {
-            padding: 10px 12px;
-          }
-          .file-name {
-            font-size: 0.85rem;
-          }
-        }
-
-        @media (max-width: 520px) {
-          .input-row {
-            flex-direction: column;
-            gap: 8px;
-          }
-          .url-input {
-            width: 100%;
-            padding: 12px 16px;
-            font-size: 0.9rem;
-            border-radius: 10px;
-          }
-          .play-btn {
-            width: 100%;
-            padding: 12px;
-            font-size: 0.95rem;
-            border-radius: 10px;
-          }
-          .player-controls-bar {
-            padding: 16px 12px 10px;
-          }
-          .timeline-container {
-            margin-bottom: 8px;
-            height: 20px;
-          }
-          .volume-control-wrap {
-            display: none;
-          }
-          .control-btn[title="Picture in Picture"] {
-            display: none;
-          }
-          .control-btn {
-            padding: 6px;
-          }
-          .time-display {
-            font-size: 0.75rem;
-            margin-left: 2px;
-          }
-          .controls-left, .controls-right {
-            gap: 6px;
-          }
-          .settings-popover {
-            width: 200px;
-            padding: 12px;
-            bottom: 40px;
-          }
-          .settings-opt-btn {
-            font-size: 0.72rem;
-            padding: 4px;
-            min-width: 50px;
-          }
-        }
-
-        /* Gesture overlay (mobile brightness/volume drag indicator) */
+        /* ── Gesture Overlay ─────────────────────────────────────────────── */
         .gesture-overlay {
           position: absolute;
           top: 50%;
           transform: translateY(-50%);
-          background: rgba(0, 0, 0, 0.6);
+          background: rgba(0,0,0,0.7);
           backdrop-filter: blur(8px);
-          padding: 14px 12px;
-          border-radius: 14px;
+          border-radius: 12px;
+          padding: 12px 20px;
+          color: #fff;
+          font-size: 0.9rem;
+          font-weight: 600;
+          z-index: 15;
+          pointer-events: none;
           display: flex;
-          flex-direction: column;
           align-items: center;
           gap: 8px;
-          z-index: 14;
-          pointer-events: none;
-          animation: gesture-fade-in 120ms ease-out;
-          min-width: 56px;
-        }
-        .gesture-overlay.left {
-          left: 18%;
-        }
-        .gesture-overlay.right {
-          right: 18%;
-        }
-        .gesture-icon {
-          opacity: 0.95;
-        }
-        .gesture-bar-track {
-          width: 36px;
-          height: 4px;
-          background: rgba(255, 255, 255, 0.2);
-          border-radius: 2px;
-          overflow: hidden;
-        }
-        .gesture-bar-fill {
-          height: 100%;
-          background: var(--accent, #5c6ef8);
-          border-radius: 2px;
-          transition: width 60ms linear;
-        }
-        .gesture-value {
-          font-size: 0.7rem;
-          color: rgba(255, 255, 255, 0.85);
-          font-weight: 600;
-        }
-        @keyframes gesture-fade-in {
-          from { opacity: 0; transform: translateY(-50%) scale(0.92); }
-          to   { opacity: 1; transform: translateY(-50%) scale(1); }
+          border: 1px solid rgba(255,255,255,0.1);
         }
 
-        /* "Auto (server default)" note inside the quality section when
-           no quality options are present (server didn't return alternatives). */
-        .settings-note {
-          color: var(--muted);
+        /* ── SEO Content Section ─────────────────────────────────────────── */
+        .seo-container {
+          margin-top: 64px;
+          display: flex;
+          flex-direction: column;
+          gap: 20px;
+          animation: fadeInUp 0.6s 0.3s ease both;
+        }
+        .seo-divider {
+          display: flex;
+          align-items: center;
+          gap: 16px;
+          margin-bottom: 4px;
+        }
+        .seo-divider-line {
+          flex: 1;
+          height: 1px;
+          background: linear-gradient(90deg, transparent, rgba(255,255,255,0.08), transparent);
+        }
+        .seo-divider-text {
+          font-size: 0.72rem;
+          font-weight: 600;
+          text-transform: uppercase;
+          letter-spacing: 0.1em;
+          color: var(--text3);
+          white-space: nowrap;
+        }
+        .seo-card {
+          background: rgba(17, 20, 34, 0.6);
+          backdrop-filter: blur(16px);
+          border: 1px solid rgba(255, 255, 255, 0.07);
+          border-radius: 20px;
+          padding: 32px;
+          position: relative;
+          overflow: hidden;
+          transition: border-color 0.3s ease;
+        }
+        .seo-card::before {
+          content: '';
+          position: absolute;
+          top: 0; left: 0; right: 0;
+          height: 1px;
+          background: linear-gradient(90deg, transparent, rgba(99,102,241,0.3), transparent);
+        }
+        .seo-card:hover {
+          border-color: rgba(255, 255, 255, 0.12);
+        }
+        .seo-card-icon {
+          width: 44px; height: 44px;
+          border-radius: 12px;
+          background: linear-gradient(135deg, rgba(99,102,241,0.2), rgba(168,85,247,0.2));
+          border: 1px solid rgba(99,102,241,0.2);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 1.3rem;
+          margin-bottom: 16px;
+        }
+        .seo-title {
+          font-family: 'Plus Jakarta Sans', 'Inter', sans-serif;
+          font-size: 1.25rem;
+          font-weight: 700;
+          color: #fff;
+          margin-bottom: 14px;
+          letter-spacing: -0.01em;
+        }
+        .seo-text {
+          font-size: 0.92rem;
+          line-height: 1.7;
+          color: var(--text2);
+          margin-bottom: 16px;
+        }
+        .seo-text:last-child { margin-bottom: 0; }
+        .seo-grid {
+          display: grid;
+          grid-template-columns: repeat(2, 1fr);
+          gap: 16px;
+          margin-top: 16px;
+        }
+        .seo-feature-item {
+          display: flex;
+          gap: 12px;
+          align-items: flex-start;
+          padding: 16px;
+          background: rgba(255,255,255,0.03);
+          border: 1px solid rgba(255,255,255,0.06);
+          border-radius: 12px;
+          transition: all 0.2s;
+        }
+        .seo-feature-item:hover {
+          background: rgba(99,102,241,0.06);
+          border-color: rgba(99,102,241,0.15);
+        }
+        .seo-feature-icon {
+          font-size: 1.4rem;
+          flex-shrink: 0;
+        }
+        .seo-item-title {
+          font-size: 0.88rem;
+          font-weight: 600;
+          color: #e2e4f0;
+          margin-bottom: 4px;
+        }
+        .seo-item-text {
+          font-size: 0.8rem;
+          color: var(--text3);
+          line-height: 1.5;
+        }
+
+        /* ── Stats Row ───────────────────────────────────────────────────── */
+        .stats-row {
+          display: grid;
+          grid-template-columns: repeat(3, 1fr);
+          gap: 16px;
+          margin-bottom: 0;
+        }
+        .stat-item {
+          text-align: center;
+          padding: 20px 16px;
+          background: rgba(17,20,34,0.6);
+          border: 1px solid rgba(255,255,255,0.07);
+          border-radius: 16px;
+          backdrop-filter: blur(12px);
+          transition: all 0.2s;
+        }
+        .stat-item:hover {
+          border-color: rgba(99,102,241,0.2);
+          transform: translateY(-2px);
+        }
+        .stat-number {
+          font-family: 'Plus Jakarta Sans', 'Inter', sans-serif;
+          font-size: 1.8rem;
+          font-weight: 800;
+          background: linear-gradient(135deg, #818cf8, #c084fc);
+          -webkit-background-clip: text;
+          -webkit-text-fill-color: transparent;
+          background-clip: text;
+          line-height: 1;
+          margin-bottom: 6px;
+        }
+        .stat-label {
+          font-size: 0.78rem;
+          color: var(--text3);
+          font-weight: 500;
+        }
+
+        /* ── How-to Steps ────────────────────────────────────────────────── */
+        .steps-list {
+          display: flex;
+          flex-direction: column;
+          gap: 14px;
+          list-style: none;
+          padding: 0;
+          counter-reset: steps;
+        }
+        .step-item {
+          display: flex;
+          align-items: flex-start;
+          gap: 16px;
+          counter-increment: steps;
+        }
+        .step-number {
+          width: 32px;
+          height: 32px;
+          border-radius: 50%;
+          background: linear-gradient(135deg, rgba(99,102,241,0.2), rgba(168,85,247,0.2));
+          border: 1px solid rgba(99,102,241,0.3);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 0.8rem;
+          font-weight: 700;
+          color: #a5b4fc;
+          flex-shrink: 0;
+          margin-top: 2px;
+        }
+        .step-content { flex: 1; }
+        .step-title { font-size: 0.9rem; font-weight: 600; color: var(--text); margin-bottom: 3px; }
+        .step-desc { font-size: 0.82rem; color: var(--text3); line-height: 1.5; }
+
+        /* ── FAQ ─────────────────────────────────────────────────────────── */
+        .faq-list { display: flex; flex-direction: column; gap: 0; }
+        .faq-item {
+          border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+          padding: 18px 0;
+        }
+        .faq-item:first-child { padding-top: 4px; }
+        .faq-item:last-child { border-bottom: none; padding-bottom: 4px; }
+        .faq-question {
+          font-size: 0.92rem;
+          font-weight: 600;
+          color: #e2e4f0;
+          margin-bottom: 8px;
+          display: flex;
+          align-items: flex-start;
+          gap: 10px;
+        }
+        .faq-q-icon {
+          width: 20px; height: 20px;
+          border-radius: 50%;
+          background: rgba(99,102,241,0.15);
+          color: #818cf8;
+          font-size: 0.7rem;
+          font-weight: 800;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          flex-shrink: 0;
+          margin-top: 1px;
+        }
+        .faq-answer {
+          font-size: 0.87rem;
+          color: var(--text2);
+          line-height: 1.65;
+          padding-left: 30px;
+        }
+
+        /* ── Footer ──────────────────────────────────────────────────────── */
+        .footer {
+          margin-top: 72px;
+          width: 100%;
+          max-width: 900px;
+          border-top: 1px solid rgba(255,255,255,0.06);
+          padding-top: 40px;
+        }
+        .footer-grid {
+          display: grid;
+          grid-template-columns: 1fr 1fr 1fr;
+          gap: 40px;
+          margin-bottom: 40px;
+        }
+        .footer-brand .footer-logo-text {
+          font-family: 'Plus Jakarta Sans', 'Inter', sans-serif;
+          font-size: 1.3rem;
+          font-weight: 800;
+          background: linear-gradient(135deg, #818cf8, #c084fc);
+          -webkit-background-clip: text;
+          -webkit-text-fill-color: transparent;
+          background-clip: text;
+          margin-bottom: 10px;
+        }
+        .footer-brand p {
+          font-size: 0.82rem;
+          color: var(--text3);
+          line-height: 1.6;
+          max-width: 220px;
+        }
+        .footer-col-title {
+          font-size: 0.78rem;
+          font-weight: 700;
+          text-transform: uppercase;
+          letter-spacing: 0.08em;
+          color: var(--text3);
+          margin-bottom: 14px;
+        }
+        .footer-links-list {
+          list-style: none;
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+        }
+        .footer-link {
+          font-size: 0.85rem;
+          color: var(--text2);
+          text-decoration: none;
+          transition: color 0.2s;
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+        }
+        .footer-link:hover { color: #a5b4fc; }
+        .footer-bottom {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding-top: 20px;
+          border-top: 1px solid rgba(255,255,255,0.05);
+          flex-wrap: wrap;
+          gap: 12px;
+        }
+        .footer-copy {
+          font-size: 0.78rem;
+          color: var(--text3);
+        }
+        .footer-disclaimer {
           font-size: 0.75rem;
-          padding: 6px 4px;
+          color: var(--text3);
+          opacity: 0.7;
+          max-width: 400px;
+          text-align: right;
+          line-height: 1.4;
+        }
+
+        /* ── Responsive ──────────────────────────────────────────────────── */
+        @media (max-width: 640px) {
+          .input-glass { padding: 5px 5px 5px 14px; }
+          .play-btn { padding: 12px 18px; font-size: 0.85rem; }
+          .seo-grid { grid-template-columns: 1fr; }
+          .stats-row { grid-template-columns: 1fr; gap: 10px; }
+          .footer-grid { grid-template-columns: 1fr; gap: 28px; }
+          .footer-bottom { flex-direction: column; }
+          .footer-disclaimer { text-align: left; }
+          .seo-card { padding: 22px; }
+          .header-logo { font-size: 2.2rem; }
+          .quality-wrap { display: none; }
+        }
+        @media (max-width: 480px) {
+          .controls-left .time-display { display: none; }
         }
       `}</style>
 
       <div className="page">
         <div className="card">
-          <div className="header">
-            <div className="header-logo">⚡ TeraLink</div>
-            <p className="header-sub">Stream or download any TeraBox share link — no ads, no redirects</p>
+
+          {/* ── Hero Header ────────────────────────────────────────────── */}
+          <header className="header">
+            <div className="header-badge">
+              <span className="header-badge-dot" />
+              Free &amp; Open · No Login Required
+            </div>
+            <h1 className="header-logo">⚡ TeraLink</h1>
+            <p className="header-sub">
+              Stream or download any TeraBox shared link — HD quality, no ads, no app install.
+            </p>
+            <div className="header-pills">
+              <span className="pill">🎬 Video Streaming</span>
+              <span className="pill">⬇️ Direct Download</span>
+              <span className="pill">📱 Mobile Ready</span>
+              <span className="pill">🔒 Ad-Free</span>
+            </div>
+          </header>
+
+          {/* ── Input Section ──────────────────────────────────────────── */}
+          <div className="input-section">
+            <div className="input-glass">
+              <span className="input-icon">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+                  <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+                </svg>
+              </span>
+              <input
+                id="terabox-url-input"
+                className="url-input"
+                value={link}
+                onChange={(e) => setLink(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && !loading && resolveLink()}
+                placeholder="Paste your TeraBox link here… (terabox.com, terasharefile.com, 1024tera.com)"
+                autoComplete="off"
+                spellCheck={false}
+              />
+              <button
+                id="resolve-btn"
+                className="play-btn"
+                onClick={(e) => { e.preventDefault(); if (!loading) resolveLink(); }}
+                onTouchStart={(e) => { e.preventDefault(); if (!loading) resolveLink(); }}
+                disabled={loading}
+                aria-label={loading ? "Resolving link…" : "Play TeraBox video"}
+              >
+                {loading ? (
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ width: '14px', height: '14px', border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff', borderRadius: '50%', animation: 'spin 0.8s linear infinite', display: 'inline-block' }} />
+                    Loading…
+                  </span>
+                ) : "▶ Play"}
+              </button>
+            </div>
           </div>
-          <div className="input-row">
-            <input className="url-input" value={link} onChange={(e) => setLink(e.target.value)} onKeyDown={(e) => e.key === "Enter" && !loading && resolveLink()} placeholder="Paste TeraBox link..." />
-            <button 
-              className="play-btn" 
-              onClick={(e) => { e.preventDefault(); if (!loading) resolveLink(); }} 
-              onTouchStart={(e) => { e.preventDefault(); if (!loading) resolveLink(); }} 
-              disabled={loading}
-            >
-              {loading ? "Resolving…" : "▶ Play"}
-            </button>
-          </div>
-          {status && <div className="status-bar">{status}</div>}
-          {error && <div className="error-box">{error}</div>}
+
+          {status && (
+            <div className="status-bar" role="status">
+              <span className="status-spinner" />
+              {status}
+            </div>
+          )}
+          {error && (
+            <div className="error-box" role="alert">
+              <span>⚠️</span>
+              <span>{error}</span>
+            </div>
+          )}
+
+          {/* ── File List ──────────────────────────────────────────────── */}
           {result?.list && result.list.length > 0 && (
             <div className="file-list">
+              <div className="file-list-header">
+                <span className="file-list-title">Files</span>
+                <span className="file-list-count">{result.list.length} item{result.list.length !== 1 ? 's' : ''}</span>
+              </div>
+
               {currentDir && (
                 <div
                   className="file-row go-back-row"
@@ -1839,63 +2423,255 @@ export default function Home() {
                     const parent = parts.length > 0 ? '/' + parts.join('/') : '';
                     openFolder(parent);
                   }}
+                  role="button"
+                  tabIndex={0}
+                  aria-label="Go to parent directory"
                 >
-                  <span className="file-icon">📁</span>
+                  <span className="file-icon-wrap">📁</span>
                   <div className="file-meta">
                     <div className="file-name">.. (Go Back)</div>
                     <div className="file-size">Parent directory</div>
                   </div>
                 </div>
               )}
-              {result.list.map((f) => (
-                <div
-                  key={f.fs_id}
-                  className={`file-row${activeFile?.fs_id === f.fs_id ? " active" : ""}${f.is_dir === "1" ? " folder-row" : ""}`}
-                  onClick={() => {
-                    if (f.is_dir === "1") {
-                      openFolder(f.file_path);
-                    } else if (f.stream_url || (f.fast_stream_url && Object.keys(f.fast_stream_url).length > 0)) {
-                      setActiveFile(f);
-                    }
-                  }}
-                >
-                  <span className="file-icon">{fileIcon(f)}</span>
-                  <div className="file-meta">
-                    <div className="file-name">{f.name}</div>
-                    <div className="file-size">{f.is_dir === "1" ? "Folder" : f.size_formatted}</div>
-                  </div>
-                  {f.is_dir !== "1" && (
-                    <div className="file-dl" onClick={(e) => e.stopPropagation()}>
-                      {f.normal_dlink ? (
-                        <a className="icon-btn" href={f.normal_dlink} download={f.name} title="Download">⬇</a>
-                      ) : f.stream_url ? (
-                        <button
-                          className="icon-btn"
-                          onClick={() => handleDownload(f.stream_url, f.name)}
-                          disabled={dlProgress >= 0}
-                          title={dlProgress >= 0 && dlFileName === f.name ? `${dlProgress}%` : "Download"}
-                          style={{ background: 'none', border: 'none', cursor: dlProgress >= 0 ? 'wait' : 'pointer', color: 'inherit', padding: 0, font: 'inherit' }}
-                        >
-                          {dlProgress >= 0 && dlFileName === f.name ? `${dlProgress}%` : '⬇'}
-                        </button>
-                      ) : null}
+
+              {result.list.map((f) => {
+                const isActive = activeFile?.fs_id === f.fs_id;
+                const isFolder = f.is_dir === "1";
+                const typeBadge = isFolder ? <span className="file-type-badge badge-folder">Folder</span>
+                  : isVideo(f.name) ? <span className="file-type-badge badge-video">Video</span>
+                  : isAudio(f.name) ? <span className="file-type-badge badge-audio">Audio</span>
+                  : isImage(f.name) ? <span className="file-type-badge badge-image">Image</span>
+                  : <span className="file-type-badge badge-file">File</span>;
+
+                return (
+                  <div
+                    key={f.fs_id}
+                    className={`file-row${isActive ? " active" : ""}${isFolder ? " folder-row" : ""}`}
+                    onClick={() => {
+                      if (isFolder) {
+                        openFolder(f.file_path);
+                      } else if (f.stream_url || (f.fast_stream_url && Object.keys(f.fast_stream_url).length > 0)) {
+                        setActiveFile(f);
+                      }
+                    }}
+                    role="button"
+                    tabIndex={0}
+                    aria-pressed={isActive}
+                    aria-label={`${isFolder ? 'Open folder' : 'Play'} ${f.name}`}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        if (isFolder) openFolder(f.file_path);
+                        else if (f.stream_url || (f.fast_stream_url && Object.keys(f.fast_stream_url).length > 0)) setActiveFile(f);
+                      }
+                    }}
+                  >
+                    <span className="file-icon-wrap">{fileIcon(f)}</span>
+                    <div className="file-meta">
+                      <div className="file-name">{f.name}</div>
+                      <div className="file-size">
+                        {isFolder ? "Folder" : f.size_formatted}
+                        {!isFolder && <span style={{marginLeft: '4px'}}>{typeBadge}</span>}
+                      </div>
                     </div>
-                  )}
-                </div>
-              ))}
+                    {!isFolder && (
+                      <div className="file-dl" onClick={(e) => e.stopPropagation()}>
+                        {f.normal_dlink ? (
+                          <a className="icon-btn" href={f.normal_dlink} download={f.name} title="Download" aria-label={`Download ${f.name}`}>⬇</a>
+                        ) : f.stream_url ? (
+                          <button
+                            className="icon-btn"
+                            onClick={() => handleDownload(f.stream_url, f.name)}
+                            disabled={dlProgress >= 0}
+                            title={dlProgress >= 0 && dlFileName === f.name ? `${dlProgress}%` : "Download"}
+                            aria-label={`Download ${f.name}`}
+                            style={{ background: 'none', border: 'none', cursor: dlProgress >= 0 ? 'wait' : 'pointer', color: 'inherit', padding: '6px 10px', font: 'inherit' }}
+                          >
+                            {dlProgress >= 0 && dlFileName === f.name ? `${dlProgress}%` : '⬇'}
+                          </button>
+                        ) : null}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
 
+          {/* ── Media Player ───────────────────────────────────────────── */}
           {activeFile ? renderMediaSection() : !result && (
-            <div className="empty">
-              <div className="empty-icon">📺</div>
-              <p className="empty-title">Paste a TeraBox link above and click Play</p>
-              <p className="empty-sub">terabox.com · terasharefile.com · 1024tera.com · teraboxapp.com</p>
+            <div className="empty" role="region" aria-label="Empty state">
+              <span className="empty-icon">📺</span>
+              <p className="empty-title">Paste a TeraBox link above to get started</p>
+              <p className="empty-sub">Stream videos instantly or generate direct download links</p>
+              <div className="empty-domains" aria-label="Supported domains">
+                {["terabox.com", "terasharefile.com", "1024tera.com", "teraboxapp.com"].map(d => (
+                  <span key={d} className="empty-domain">{d}</span>
+                ))}
+              </div>
             </div>
           )}
+
+          {/* ── SEO Content Section ─────────────────────────────────────── */}
+          <section className="seo-container" aria-label="About TeraLink">
+
+            {/* Stats Row */}
+            <div className="stats-row">
+              <div className="stat-item">
+                <div className="stat-number">100%</div>
+                <div className="stat-label">Free Forever</div>
+              </div>
+              <div className="stat-item">
+                <div className="stat-number">0</div>
+                <div className="stat-label">Ads or Popups</div>
+              </div>
+              <div className="stat-item">
+                <div className="stat-number">HD</div>
+                <div className="stat-label">Video Quality</div>
+              </div>
+            </div>
+
+            {/* Main Feature Card */}
+            <div className="seo-card">
+              <div className="seo-card-icon">⚡</div>
+              <h2 className="seo-title">Free Online TeraBox Video Player &amp; Downloader</h2>
+              <p className="seo-text">
+                Tired of installing heavy applications just to watch a shared video? <strong style={{color:'#c7d2fe'}}>TeraLink</strong> is a completely free, browser-based <strong style={{color:'#c7d2fe'}}>TeraBox Video Player</strong> and <strong style={{color:'#c7d2fe'}}>TeraBox Link Downloader</strong>. With our clean, ad-free interface, stream or download shared TeraBox links directly in high-definition (HD) from any device — no accounts, no downloads, no redirects.
+              </p>
+              <div className="seo-grid">
+                {[
+                  { icon: "🚀", title: "Fast Link Opener", desc: "Bypass TeraBox app restrictions instantly. Processes your link and opens it in seconds." },
+                  { icon: "🎥", title: "HD Online Streaming", desc: "Play TeraBox videos with multiple quality options (360p, 480p, 720p, 1080p) and adaptive bitrate." },
+                  { icon: "⬇️", title: "Direct Download", desc: "Generate direct download links for offline viewing. High-speed CDN — no registration needed." },
+                  { icon: "🔒", title: "Secure &amp; Ad-Free", desc: "No popups, no hidden tracking. We keep your session private and your data safe." },
+                ].map((item) => (
+                  <div key={item.title} className="seo-feature-item">
+                    <span className="seo-feature-icon">{item.icon}</span>
+                    <div>
+                      <div className="seo-item-title">{item.title}</div>
+                      <div className="seo-item-text" dangerouslySetInnerHTML={{ __html: item.desc }} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* What is TeraBox */}
+            <div className="seo-card">
+              <div className="seo-card-icon">☁️</div>
+              <h2 className="seo-title">What is TeraBox?</h2>
+              <p className="seo-text">
+                TeraBox is a widely-used cloud storage provider that grants users <strong style={{color:'#c7d2fe'}}>1 TB (1024 GB) of free cloud storage</strong> to back up, sync, and share files, photos, and large videos. Although highly useful for storing large media libraries, TeraBox places significant restrictions on non-registered viewers — limiting previews to 30 seconds, capping download speeds, and constantly pushing you to install their app.
+              </p>
+              <p className="seo-text">
+                <strong style={{color:'#c7d2fe'}}>TeraLink</strong> removes these limitations. It functions as a direct web player and link opener, converting restricted shared links into clean, instantly-playable streams — right inside your browser, in full HD, with no redirects.
+              </p>
+            </div>
+
+            {/* How to Use */}
+            <div className="seo-card">
+              <div className="seo-card-icon">📖</div>
+              <h2 className="seo-title">How to Use the TeraBox Link Player</h2>
+              <p className="seo-text" style={{marginBottom: '20px'}}>Getting started is simple and works on all devices — mobile phones, tablets, and desktops:</p>
+              <ol className="steps-list">
+                <li className="step-item">
+                  <span className="step-number">1</span>
+                  <div className="step-content">
+                    <div className="step-title">Copy your TeraBox Share Link</div>
+                    <div className="step-desc">Go to TeraBox and copy the public share link (e.g. <code style={{background:'rgba(99,102,241,0.1)',padding:'1px 6px',borderRadius:'4px',fontSize:'0.82rem',color:'#a5b4fc'}}>https://terasharefile.com/s/...</code>).</div>
+                  </div>
+                </li>
+                <li className="step-item">
+                  <span className="step-number">2</span>
+                  <div className="step-content">
+                    <div className="step-title">Paste the Link into TeraLink</div>
+                    <div className="step-desc">Open TeraLink and paste your link into the input field at the top of this page.</div>
+                  </div>
+                </li>
+                <li className="step-item">
+                  <span className="step-number">3</span>
+                  <div className="step-content">
+                    <div className="step-title">Stream or Download Instantly</div>
+                    <div className="step-desc">Click <strong style={{color:'#a5b4fc'}}>▶ Play</strong> to load your files. Choose to stream in-browser or save the file for offline viewing.</div>
+                  </div>
+                </li>
+              </ol>
+            </div>
+
+            {/* FAQ */}
+            <div className="seo-card">
+              <div className="seo-card-icon">❓</div>
+              <h2 className="seo-title">Frequently Asked Questions</h2>
+              <div className="faq-list">
+                {[
+                  {
+                    q: "Can I play TeraBox videos online without the app?",
+                    a: "Yes! TeraLink serves as an online TeraBox Video Player, letting you stream any shared video directly in Chrome, Safari, Firefox, or Edge without downloading or installing any mobile apps."
+                  },
+                  {
+                    q: "Does TeraLink support high-speed direct downloading?",
+                    a: "Absolutely. Generated download links point directly to high-speed CDN servers, bypass mobile speed caps, and allow you to download files at maximum speed using any download manager or browser."
+                  },
+                  {
+                    q: "Is TeraLink completely free to use?",
+                    a: "Yes, TeraLink is 100% free and does not require registration, subscription fees, or account logins of any kind. No hidden costs, no premium tiers."
+                  },
+                  {
+                    q: "Does the TeraBox player work on Android and iOS?",
+                    a: "Yes! We use advanced native and HLS.js streaming technology, fully optimized for mobile browsers including Android Chrome and iOS Safari. No app installation needed."
+                  },
+                  {
+                    q: "What TeraBox link formats are supported?",
+                    a: "TeraLink supports all major TeraBox domains including terabox.com, terasharefile.com, 1024tera.com, teraboxapp.com and more."
+                  },
+                ].map((item) => (
+                  <div key={item.q} className="faq-item" itemScope itemType="https://schema.org/Question">
+                    <h3 className="faq-question" itemProp="name">
+                      <span className="faq-q-icon">Q</span>
+                      {item.q}
+                    </h3>
+                    <p className="faq-answer" itemProp="acceptedAnswer" itemScope itemType="https://schema.org/Answer">
+                      <span itemProp="text">{item.a}</span>
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+          </section>
         </div>
-        <div className="footer">TeraLink — your own TeraBox streaming server</div>
+
+        {/* ── Footer ──────────────────────────────────────────────────────── */}
+        <footer className="footer" role="contentinfo">
+          <div className="footer-grid">
+            <div className="footer-brand">
+              <div className="footer-logo-text">⚡ TeraLink</div>
+              <p>Free TeraBox video player and direct link downloader. No ads, no registration, no limits.</p>
+            </div>
+            <div>
+              <div className="footer-col-title">Legal</div>
+              <ul className="footer-links-list">
+                <li><a href="/privacy" className="footer-link">Privacy Policy</a></li>
+                <li><a href="/terms" className="footer-link">Terms &amp; Conditions</a></li>
+              </ul>
+            </div>
+            <div>
+              <div className="footer-col-title">Supported Domains</div>
+              <ul className="footer-links-list">
+                {["terabox.com", "terasharefile.com", "1024tera.com", "teraboxapp.com"].map(d => (
+                  <li key={d}><span className="footer-link">{d}</span></li>
+                ))}
+              </ul>
+            </div>
+          </div>
+          <div className="footer-bottom">
+            <p className="footer-copy">© {new Date().getFullYear()} TeraLink. All rights reserved. Not affiliated with TeraBox.</p>
+            <p className="footer-disclaimer">We do not host any content on our servers. This service is a tool to play and download publicly shared TeraBox links.</p>
+          </div>
+        </footer>
       </div>
     </>
   );
 }
+
