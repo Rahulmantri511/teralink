@@ -1164,10 +1164,11 @@ export default function Home() {
     );
   }
 
-  const jsonLd = {
+  const jsonLdApp = {
     "@context": "https://schema.org",
     "@type": "SoftwareApplication",
     "name": "TeraLink",
+    "url": "https://teralink.in",
     "operatingSystem": "All",
     "applicationCategory": "MultimediaApplication",
     "offers": {
@@ -1175,15 +1176,74 @@ export default function Home() {
       "price": "0.00",
       "priceCurrency": "USD"
     },
-    "description": "Stream TeraBox videos online or generate high-speed direct download links without downloading the app. Free, ad-free, and works on Android, iOS, and PC.",
-    "softwareVersion": "1.0.0"
+    "description": "TeraLink is a free online TeraBox Video Player and Downloader. Stream TeraBox videos in HD or generate direct download links — no app, no login, no ads.",
+    "softwareVersion": "1.0.0",
+    "featureList": [
+      "TeraBox Video Streaming",
+      "TeraBox Direct Download",
+      "HD Quality Playback",
+      "No Registration Required",
+      "Works on Android and iOS",
+      "Ad-Free Experience"
+    ]
+  };
+
+  const jsonLdFAQ = {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": [
+      {
+        "@type": "Question",
+        "name": "Can I play TeraBox videos online without the app?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Yes! TeraLink serves as a free online TeraBox Video Player. You can stream any shared TeraBox video directly in Chrome, Safari, Firefox, or Edge without downloading or installing any mobile apps."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "How do I open a TeraBox link online?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Simply paste your TeraBox share link (from terabox.com, terasharefile.com, or 1024tera.com) into the input box on TeraLink and click Play. Your video will start streaming instantly — no login or app required."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Is TeraLink a free TeraBox downloader?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Yes, TeraLink is 100% free. You can generate high-speed direct download links for TeraBox files with no registration, no subscription fees, and no account logins required."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Does the TeraBox player work on Android and iOS?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Yes! TeraLink uses HLS.js and native streaming technology, fully optimized for mobile browsers including Android Chrome and iOS Safari. No app installation is needed."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "What TeraBox link formats does TeraLink support?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "TeraLink supports all major TeraBox domains including terabox.com, terasharefile.com, 1024tera.com, and teraboxapp.com."
+        }
+      }
+    ]
   };
 
   return (
     <>
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLdApp) }}
+      />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLdFAQ) }}
       />
       <style>{`
         /* ── Page Layout ─────────────────────────────────────────────────── */
@@ -2650,8 +2710,9 @@ export default function Home() {
               <p>Free TeraBox video player and direct link downloader. No ads, no registration, no limits.</p>
             </div>
             <div>
-              <div className="footer-col-title">Legal</div>
+              <div className="footer-col-title">Legal &amp; Guides</div>
               <ul className="footer-links-list">
+                <li><a href="/blog" className="footer-link">Blog &amp; Tutorials</a></li>
                 <li><a href="/privacy" className="footer-link">Privacy Policy</a></li>
                 <li><a href="/terms" className="footer-link">Terms &amp; Conditions</a></li>
               </ul>

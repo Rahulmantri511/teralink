@@ -2,13 +2,13 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  metadataBase: new URL("https://teralink.vercel.app"),
+  metadataBase: new URL("https://teralink.in"),
   title: {
     default: "TeraLink — Free TeraBox Video Player & Downloader Online",
     template: "%s | TeraLink",
   },
   description:
-    "Stream TeraBox videos online or generate high-speed direct download links — no app needed, no login, no ads. Supports terabox.com, terasharefile.com, 1024tera.com. Free HD player for Android, iOS & PC.",
+    "TeraLink is the best free online TeraBox Video Player and Downloader. Stream TeraBox videos in HD or get direct download links — no app, no login, no ads. Works on Android, iOS & PC. Supports terabox.com, terasharefile.com, 1024tera.com.",
   applicationName: "TeraLink",
   keywords: [
     "TeraBox Player",
@@ -24,21 +24,31 @@ export const metadata: Metadata = {
     "1024tera player",
     "terasharefile player",
     "terabox online player",
-    "terabox stream",
+    "terabox stream online free",
+    "terabox video downloader online",
+    "open terabox link online",
+    "terabox link opener free",
+    "terabox player no login",
+    "terabox without app",
+    "terabox hd player",
   ],
+  authors: [{ name: "TeraLink" }],
+  creator: "TeraLink",
+  publisher: "TeraLink",
   openGraph: {
     title: "TeraLink — Free TeraBox Video Player & Downloader Online",
     description:
-      "Stream TeraBox videos online or download at high speed — no app, no login. Works on Android, iOS, and PC.",
+      "Stream TeraBox videos online in HD or download at high speed — no app, no login, 0 ads. Works on Android, iOS, and PC.",
     type: "website",
     siteName: "TeraLink",
     locale: "en_US",
+    url: "https://teralink.in",
   },
   twitter: {
     card: "summary_large_image",
     title: "TeraLink — Free TeraBox Video Player & Downloader Online",
     description:
-      "Stream TeraBox videos online or download at high speed — no app, no login. Works on Android, iOS, and PC.",
+      "Stream TeraBox videos online in HD or download at high speed — no app, no login, 0 ads.",
   },
   robots: {
     index: true,
@@ -52,7 +62,7 @@ export const metadata: Metadata = {
     },
   },
   alternates: {
-    canonical: "/",
+    canonical: "https://teralink.in",
   },
 };
 
