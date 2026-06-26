@@ -794,23 +794,21 @@ async function resolveFull(shortCode, auth = {}, workerBase = '', dir = '', encr
           f.debugInfo.dlinkErrors.push({ error: 'CDN returned 0 bytes for content-length' });
         }
       } catch (e) {
-        dlinkStatus = 'dead';
+        const isAuthError = e.message?.toLowerCase().includes('expired') || e.message?.toLowerCase().includes('auth failed');
+        dlinkStatus = isAuthError ? 'dead' : 'error';
         f.debugInfo.dlinkErrors.push({
           error: e?.message ?? 'fast_stream build failed',
         });
-        console.log(`[worker] dlink is dead for ${f.filename}: ${e?.message}`);
+        console.log(`[worker] dlink failed for ${f.filename} (status: ${dlinkStatus}): ${e?.message}`);
       }
     }
     f.debugInfo.dlinkStatus = dlinkStatus;
 
-    // 3c: HLS streaming URL — FALLBACK only when dlink-based fast_stream failed
-    // AND the dlink isn't provably dead. Two ways the dlink can be dead:
-    //   1. resolveRedirect threw on 4xx (dlinkStatus === 'dead')
-    //   2. getDlink threw on errno (dlinkErrored === true) — TeraBox's
-    //      /share/download returned errno 400210 (verify_v2 required) and
-    //      similar auth errors. In both cases the CDN will 403, so skip HLS.
-    const skipHls = !f.fastStreamUrl && (dlinkStatus === 'dead' || dlinkErrored);
-    if (!f.fastStreamUrl && !skipHls && shareId && uk) {
+    // 3c: HLS streaming URL — always attempt to resolve if domain is not dead.
+    // HLS is preferred because streaming CDNs do not enforce the same strict
+    // IP-binding checks as direct download CDNs (which block Edge/datacenter IPs).
+    const skipHls = dlinkStatus === 'dead' || dlinkErrored;
+    if (!skipHls && shareId && uk) {
       const fallbackQuality = 'M3U8_AUTO_480';
       const streamDomainOrder = [
         bestDomain,
@@ -858,24 +856,24 @@ async function resolveFull(shortCode, auth = {}, workerBase = '', dir = '', encr
     const type = isVideo(f.filename) ? 'video' : isAudio(f.filename) ? 'audio' : isImage(f.filename) ? 'image' : 'file';
 
     // Map qualities to fast_stream_url.
-    // Priority: dlink-based fast_stream (full video, no signature refresh) > HLS (30s preview).
+    // Priority: HLS (not IP-bound, proxyable on Edge) > dlink-based fast_stream (fallback).
     const fastStreamUrlMap = {};
 
-    // Primary: dlink-based fast_stream M3U8 (full video).
-    // The byte-range M3U8 is the same URL for all "qualities" — the player
-    // requests whatever byte ranges it needs, and the original file's quality
-    // is whatever the uploader chose.
-    if (f.fastStreamUrl) {
-      for (const q of ['360p', '480p', '720p', '1080p']) {
-        fastStreamUrlMap[q] = f.fastStreamUrl;
-      }
-      fastStreamUrlMap['Original (Full)'] = f.fastStreamUrl;
-    }
-
-    // Secondary: HLS streaming URLs (30-second preview), if dlink-based failed.
-    if (!f.fastStreamUrl && f.qualities) {
+    // 1. Prioritize HLS qualities (official streaming, works through proxy/worker, not IP-bound)
+    if (f.qualities) {
       for (const qKey of Object.keys(f.qualities)) {
         fastStreamUrlMap[`${qKey}p`] = `${workerBase}${f.qualities[qKey]}`;
+      }
+    }
+
+    // 2. Fast stream qualities (fallback or Original Full quality)
+    if (f.fastStreamUrl) {
+      fastStreamUrlMap['Original (Full)'] = f.fastStreamUrl;
+      // If we don't have any HLS streaming resolved, map it as the primary stream qualities
+      if (Object.keys(fastStreamUrlMap).length === 1) { // only 'Original (Full)' is present
+        for (const q of ['360p', '480p', '720p', '1080p']) {
+          fastStreamUrlMap[q] = f.fastStreamUrl;
+        }
       }
     }
 
@@ -904,9 +902,11 @@ async function resolveFull(shortCode, auth = {}, workerBase = '', dir = '', encr
       normal_dlink: f.dlinkResolved ? `${workerBase}/stream?p=${await encryptPayload(f.dlinkResolved, bestCookies, encryptionKey)}&dl=1` : "",
       stream_url: f.hlsUrl
         ? `${workerBase}${f.hlsUrl}`
-        : (f.dlinkResolved
-          ? `${workerBase}/stream?p=${await encryptPayload(f.dlinkResolved, bestCookies, encryptionKey)}`
-          : (f.fastStreamUrl || "")),
+        : (f.fastStreamUrl
+          ? f.fastStreamUrl
+          : (f.dlinkResolved
+            ? `${workerBase}/stream?p=${await encryptPayload(f.dlinkResolved, bestCookies, encryptionKey)}`
+            : "")),
       fast_stream_url: fastStreamUrlMap,
       subtitle_url: "",
       thumbnail: f.thumbnail,

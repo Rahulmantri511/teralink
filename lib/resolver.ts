@@ -685,17 +685,18 @@ export async function resolveFullLocal(shortCode: string, auth: any = {}, worker
           f.debugInfo.dlinkErrors.push({ error: 'CDN returned 0 bytes for content-length' });
         }
       } catch (e: any) {
-        dlinkStatus = 'dead';
+        const isAuthError = e.message?.toLowerCase().includes('expired') || e.message?.toLowerCase().includes('auth failed');
+        dlinkStatus = isAuthError ? 'dead' : 'error';
         f.debugInfo.dlinkErrors.push({
           error: e?.message ?? 'fast_stream build failed',
         });
-        console.log(`[local-resolver] dlink is dead for ${f.filename}: ${e?.message}`);
+        console.log(`[local-resolver] dlink failed for ${f.filename} (status: ${dlinkStatus}): ${e?.message}`);
       }
     }
     f.debugInfo.dlinkStatus = dlinkStatus;
 
-    const skipHls = !f.fastStreamUrl && (dlinkStatus === 'dead' || dlinkErrored);
-    if (!f.fastStreamUrl && !skipHls && shareId && uk) {
+    const skipHls = dlinkStatus === 'dead' || dlinkErrored;
+    if (!skipHls && shareId && uk) {
       const fallbackQuality = 'M3U8_AUTO_480';
       const streamDomainOrder = [
         bestDomain,
@@ -742,17 +743,22 @@ export async function resolveFullLocal(shortCode: string, auth: any = {}, worker
     const type = isVideo(f.filename) ? 'video' : isAudio(f.filename) ? 'audio' : isImage(f.filename) ? 'image' : 'file';
     const fastStreamUrlMap: Record<string, string> = {};
 
-    if (f.fastStreamUrl) {
-      for (const q of ['360p', '480p', '720p', '1080p']) {
-        fastStreamUrlMap[q] = f.fastStreamUrl;
-      }
-      fastStreamUrlMap['Original (Full)'] = f.fastStreamUrl;
-    }
-
-    if (!f.fastStreamUrl && f.qualities) {
+    // 1. Prioritize HLS qualities (not IP-bound, proxyable on Edge)
+    if (f.qualities) {
       for (const qKey of Object.keys(f.qualities)) {
         const encrypted = await encryptPayload(f.qualities[qKey], bestCookies);
         fastStreamUrlMap[`${qKey}p`] = `/api/stream?p=${encrypted}`;
+      }
+    }
+
+    // 2. Fast stream qualities (fallback or Original Full quality)
+    if (f.fastStreamUrl) {
+      fastStreamUrlMap['Original (Full)'] = f.fastStreamUrl;
+      // If we don't have any HLS streaming resolved, map it as the primary stream qualities
+      if (Object.keys(fastStreamUrlMap).length === 1) { // only 'Original (Full)' is present
+        for (const q of ['360p', '480p', '720p', '1080p']) {
+          fastStreamUrlMap[q] = f.fastStreamUrl;
+        }
       }
     }
 
@@ -766,15 +772,15 @@ export async function resolveFullLocal(shortCode: string, auth: any = {}, worker
     else if (fastStreamUrlMap['360p']) primaryQuality = '360p';
     else if (Object.keys(fastStreamUrlMap).length > 0) primaryQuality = Object.keys(fastStreamUrlMap)[0];
 
-    let finalStreamUrl = f.fastStreamUrl || '';
-    if (!finalStreamUrl) {
-      if (f.hlsUrl) {
-        const encrypted = await encryptPayload(f.hlsUrl, bestCookies);
-        finalStreamUrl = `/api/stream?p=${encrypted}`;
-      } else if (f.dlinkResolved) {
-        const encrypted = await encryptPayload(f.dlinkResolved, bestCookies);
-        finalStreamUrl = `/api/stream?p=${encrypted}`;
-      }
+    let finalStreamUrl = '';
+    if (f.hlsUrl) {
+      const encrypted = await encryptPayload(f.hlsUrl, bestCookies);
+      finalStreamUrl = `/api/stream?p=${encrypted}`;
+    } else if (f.fastStreamUrl) {
+      finalStreamUrl = f.fastStreamUrl;
+    } else if (f.dlinkResolved) {
+      const encrypted = await encryptPayload(f.dlinkResolved, bestCookies);
+      finalStreamUrl = `/api/stream?p=${encrypted}`;
     }
 
     filesList.push({
