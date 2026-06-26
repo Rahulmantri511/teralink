@@ -159,7 +159,34 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // ── Case 2: Progressive Video / Direct Download (Stream via Proxy) ───────────
+  // ── Case 2: Progressive Video / Direct Download (Stream via Proxy / Redirect) ───────────
+  // If no proxy is configured, the link was generated using the user's home IP (which matches the browser's IP).
+  // We can safely redirect the client browser directly to the CDN for maximum speed and zero buffering.
+  if (!process.env.TERABOX_PROXY) {
+    console.log(`[local-stream] No proxy configured. Redirecting client directly to CDN: ${targetUrl.replace(/(sign|jsToken|cookies)=[^&]+/g, '$1=***')}`);
+    const headers: Record<string, string> = {
+      'Access-Control-Allow-Origin': '*',
+      'Location': targetUrl,
+    };
+    if (download) {
+      try {
+        const name = new URL(targetUrl).searchParams.get('name') || 'video.mp4';
+        headers['Content-Disposition'] = `attachment; filename="${name}"`;
+      } catch {
+        headers['Content-Disposition'] = 'attachment';
+      }
+    } else {
+      const queryName = req.nextUrl.searchParams.get('name');
+      if (queryName) {
+        headers['Content-Disposition'] = `attachment; filename="${queryName}"`;
+      }
+    }
+    return new Response(null, {
+      status: 302,
+      headers,
+    });
+  }
+
   // We stream the download through the proxy so that the request appears to come from the proxy IP
   // (which matches the IP that generated/signed the download link). This bypasses the 31326 CDN IP-binding error.
   try {

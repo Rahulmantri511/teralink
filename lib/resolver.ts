@@ -614,45 +614,49 @@ export async function resolveFullLocal(shortCode: string, auth: any = {}, worker
     f.hlsUrl        = '';
     f.qualities     = {};
     f.fastStreamUrl = '';
-    f.dlinkResolved = f.dlink || '';
+    f.dlinkResolved = '';
     f.debugInfo     = { streamErrors: [], dlinkErrors: [] };
 
     let dlinkErrored = false;
-    if (!f.dlink) {
-      const dlinkDomainOrder = [
-        bestDomain,
-        ...DOMAINS.filter(d => d !== bestDomain).slice(0, MAX_SEQUENTIAL_FALLBACKS),
-      ];
-      for (const d of dlinkDomainOrder) {
-        try {
-          const dl = await getDlink(d, f.fs_id, uk, shareId, shortCode, bestJsToken, bestBdstoken, bestCookies, fetchUa);
-          if (dl) {
-            f.dlinkResolved = dl;
-            console.log(`[local-resolver] Got dlink for ${f.filename} from ${d}`);
-            break;
-          }
-          f.debugInfo.dlinkErrors.push({
-            domain: d,
-            error: 'getDlink returned empty (no dlink in response)',
-          });
-        } catch (err: any) {
-          f.debugInfo.dlinkErrors.push({
-            domain: d,
-            error: err?.message ?? 'getDlink threw',
-          });
-          const errMsg = err?.message?.toLowerCase() || '';
-          const isAuthError = errMsg.includes('expired') || 
-                              errMsg.includes('verify') || 
-                              errMsg.includes('400141') || 
-                              errMsg.includes('400210') ||
-                              errMsg.includes('401') ||
-                              errMsg.includes('403');
-          if (isAuthError) {
-            dlinkErrored = true;
-          }
-          console.log(`[local-resolver] getDlink failed on ${d}: ${err?.message}`);
+    const dlinkDomainOrder = [
+      bestDomain,
+      ...DOMAINS.filter(d => d !== bestDomain).slice(0, MAX_SEQUENTIAL_FALLBACKS),
+    ];
+    for (const d of dlinkDomainOrder) {
+      try {
+        const dl = await getDlink(d, f.fs_id, uk, shareId, shortCode, bestJsToken, bestBdstoken, bestCookies, fetchUa);
+        if (dl) {
+          f.dlinkResolved = dl;
+          console.log(`[local-resolver] Got dlink for ${f.filename} from ${d}`);
+          break;
         }
+        f.debugInfo.dlinkErrors.push({
+          domain: d,
+          error: 'getDlink returned empty (no dlink in response)',
+        });
+      } catch (err: any) {
+        f.debugInfo.dlinkErrors.push({
+          domain: d,
+          error: err?.message ?? 'getDlink threw',
+        });
+        const errMsg = err?.message?.toLowerCase() || '';
+        const isAuthError = errMsg.includes('expired') || 
+                            errMsg.includes('verify') || 
+                            errMsg.includes('400141') || 
+                            errMsg.includes('400210') ||
+                            errMsg.includes('401') ||
+                            errMsg.includes('403');
+        if (isAuthError) {
+          dlinkErrored = true;
+          break; // session issue, don't try other domains
+        }
+        console.log(`[local-resolver] getDlink failed on ${d}: ${err?.message}`);
       }
+    }
+
+    if (!f.dlinkResolved && f.dlink) {
+      console.log(`[local-resolver] getDlink failed, falling back to raw list dlink for ${f.filename}`);
+      f.dlinkResolved = f.dlink;
     }
 
     let dlinkStatus = f.dlinkResolved ? 'pending' : 'no_dlink';
