@@ -43,14 +43,14 @@ function VideoPlayer({ activeFile, workerUrl }: VideoPlayerProps) {
   const [currentQuality, setCurrentQuality] = useState<string>(() => {
     const qualities = activeFile.fast_stream_url || {};
     const keys = Object.keys(qualities).filter(k => qualities[k]);
-    return keys.includes("480p")
-      ? "480p"
-      : keys.includes("360p")
-        ? "360p"
-        : keys.includes("720p")
-          ? "720p"
-          : keys.includes("Original (Full)")
-            ? "Original (Full)"
+    return keys.includes("Original (Full)")
+      ? "Original (Full)"
+      : keys.includes("480p")
+        ? "480p"
+        : keys.includes("360p")
+          ? "360p"
+          : keys.includes("720p")
+            ? "720p"
             : keys[0] || "default";
   });
   const [isPlaying, setIsPlaying] = useState(false);
@@ -267,6 +267,7 @@ function VideoPlayer({ activeFile, workerUrl }: VideoPlayerProps) {
         try {
           const u = new URL(urlStr, window.location.origin);
           if (u.searchParams.get("dl") === "1") return false;
+          if (u.searchParams.get("format") === "mp4") return false;
           if (u.pathname.endsWith("/stream") || u.pathname.endsWith("/fast_stream")) {
             return true;
           }

@@ -159,25 +159,80 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // ── Case 2: Progressive Video / Direct Download (Redirect to CDN) ───────────
-  // Redirect directly to the signed CDN URL for speed and to avoid worker bandwidth limits.
-  const headers: Record<string, string> = {
-    'Access-Control-Allow-Origin': '*',
-    'Location': targetUrl,
-  };
-  if (download) {
-    try {
-      const name = new URL(targetUrl).searchParams.get('name') || 'video.mp4';
-      headers['Content-Disposition'] = `attachment; filename="${name}"`;
-    } catch {
-      headers['Content-Disposition'] = 'attachment';
-    }
-  }
+  // ── Case 2: Progressive Video / Direct Download (Stream via Proxy) ───────────
+  // We stream the download through the proxy so that the request appears to come from the proxy IP
+  // (which matches the IP that generated/signed the download link). This bypasses the 31326 CDN IP-binding error.
+  try {
+    const range = req.headers.get('range');
+    const headers: Record<string, string> = {
+      'User-Agent': UA,
+      'Referer': 'https://www.terabox.app/',
+      'Accept': '*/*',
+    };
+    if (cookiesStr) headers['Cookie'] = cookiesStr;
+    if (range) headers['Range'] = range;
 
-  return new Response(null, {
-    status: 302,
-    headers,
-  });
+    console.log(`[local-stream] Proxying direct download from CDN: ${targetUrl.replace(/(sign|jsToken|cookies)=[^&]+/g, '$1=***')}`);
+    
+    let upstream = await proxyFetch(targetUrl, { headers, redirect: 'manual' });
+    
+    // Follow redirects manually to ensure we stay on the proxy
+    let redirectCount = 0;
+    while ((upstream.status === 301 || upstream.status === 302 ||
+            upstream.status === 307 || upstream.status === 308) && redirectCount < 5) {
+      const location = upstream.headers.get('location');
+      if (!location) break;
+      console.log(`[local-stream] Following redirect to: ${location.replace(/(sign|jsToken|cookies)=[^&]+/g, '$1=***')}`);
+      upstream = await proxyFetch(location, { headers, redirect: 'manual' });
+      redirectCount++;
+    }
+
+    const responseHeaders = new Headers();
+    responseHeaders.set('Access-Control-Allow-Origin', '*');
+    responseHeaders.set('Access-Control-Allow-Headers', '*');
+    
+    const headersToForward = [
+      'content-type',
+      'content-length',
+      'content-range',
+      'accept-ranges',
+      'cache-control',
+      'etag',
+      'last-modified'
+    ];
+
+    for (const h of headersToForward) {
+      const val = upstream.headers.get(h);
+      if (val) {
+        responseHeaders.set(h, val);
+      }
+    }
+
+    const upstreamCd = upstream.headers.get('content-disposition');
+    const queryName = req.nextUrl.searchParams.get('name');
+
+    if (queryName) {
+      responseHeaders.set('Content-Disposition', `attachment; filename="${queryName}"`);
+    } else if (upstreamCd) {
+      responseHeaders.set('Content-Disposition', upstreamCd);
+    } else if (download) {
+      try {
+        const name = new URL(targetUrl).searchParams.get('name') || 'video.mp4';
+        responseHeaders.set('Content-Disposition', `attachment; filename="${name}"`);
+      } catch {
+        responseHeaders.set('Content-Disposition', 'attachment');
+      }
+    }
+
+    // Cast the body if needed to satisfy the ResponseInit type
+    return new Response(upstream.body as any, {
+      status: upstream.status,
+      headers: responseHeaders,
+    });
+  } catch (err: any) {
+    console.error('[local-stream] Direct stream fetch failed:', err?.message);
+    return new Response('Direct stream fetch failed: ' + err?.message, { status: 502 });
+  }
 }
 
 async function handlePlaylistResponse(upstream: Response, targetUrl: string, workerUrl: string, cookiesStr: string) {

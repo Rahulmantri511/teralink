@@ -530,13 +530,7 @@ export async function resolveFullLocal(shortCode: string, auth: any = {}, worker
 
   let premCookiesStr = '';
   if (auth && auth.ndus) {
-    const premParts = [];
-    premParts.push(`ndus=${auth.ndus}`);
-    if (auth.ndut_fmt) premParts.push(`ndut_fmt=${auth.ndut_fmt}`);
-    if (auth.ndut_fmv) premParts.push(`ndut_fmv=${auth.ndut_fmv}`);
-    if (auth.csrf)     premParts.push(`csrfToken=${auth.csrf}`);
-    if (auth.browserid) premParts.push(`browserid=${auth.browserid}`);
-    premCookiesStr = premParts.join('; ');
+    premCookiesStr = `ndus=${auth.ndus}`;
   }
 
   let session: any = null;
@@ -677,7 +671,7 @@ export async function resolveFullLocal(shortCode: string, auth: any = {}, worker
             size:    String(fileSize),
             name:    f.filename,
           });
-          f.fastStreamUrl = `${workerBase}/fast_stream?${fastStreamParams}`;
+          f.fastStreamUrl = `/api/stream?p=${encryptedPayload}&format=mp4`;
           dlinkStatus = 'ok';
           console.log(`[local-resolver] fast_stream URL built for ${f.filename}, size=${fileSize}, segments=${Math.ceil(fileSize / BYTES_PER_CHUNK)}`);
         } else {
@@ -747,17 +741,23 @@ export async function resolveFullLocal(shortCode: string, auth: any = {}, worker
     if (f.qualities) {
       for (const qKey of Object.keys(f.qualities)) {
         const encrypted = await encryptPayload(f.qualities[qKey], bestCookies);
-        fastStreamUrlMap[`${qKey}p`] = `/api/stream?p=${encrypted}`;
+        fastStreamUrlMap[`Preview (${qKey}p)`] = `/api/stream?p=${encrypted}`;
       }
     }
 
     // 2. Fast stream qualities (fallback or Original Full quality)
     if (f.fastStreamUrl) {
       fastStreamUrlMap['Original (Full)'] = f.fastStreamUrl;
+    } else if (f.dlinkResolved) {
+      const encrypted = await encryptPayload(f.dlinkResolved, bestCookies);
+      fastStreamUrlMap['Original (Full)'] = `/api/stream?p=${encrypted}&format=mp4`;
+    }
+
+    if (fastStreamUrlMap['Original (Full)']) {
       // If we don't have any HLS streaming resolved, map it as the primary stream qualities
       if (Object.keys(fastStreamUrlMap).length === 1) { // only 'Original (Full)' is present
         for (const q of ['360p', '480p', '720p', '1080p']) {
-          fastStreamUrlMap[q] = f.fastStreamUrl;
+          fastStreamUrlMap[q] = fastStreamUrlMap['Original (Full)'];
         }
       }
     }
@@ -768,18 +768,19 @@ export async function resolveFullLocal(shortCode: string, auth: any = {}, worker
     }
 
     let primaryQuality = '360p';
-    if (fastStreamUrlMap['480p']) primaryQuality = '480p';
-    else if (fastStreamUrlMap['360p']) primaryQuality = '360p';
+    if (fastStreamUrlMap['Original (Full)']) primaryQuality = 'Original (Full)';
+    else if (fastStreamUrlMap['Preview (480p)']) primaryQuality = 'Preview (480p)';
+    else if (fastStreamUrlMap['Preview (360p)']) primaryQuality = 'Preview (360p)';
     else if (Object.keys(fastStreamUrlMap).length > 0) primaryQuality = Object.keys(fastStreamUrlMap)[0];
 
     let finalStreamUrl = '';
-    if (f.hlsUrl) {
-      const encrypted = await encryptPayload(f.hlsUrl, bestCookies);
-      finalStreamUrl = `/api/stream?p=${encrypted}`;
-    } else if (f.fastStreamUrl) {
+    if (f.fastStreamUrl) {
       finalStreamUrl = f.fastStreamUrl;
     } else if (f.dlinkResolved) {
       const encrypted = await encryptPayload(f.dlinkResolved, bestCookies);
+      finalStreamUrl = `/api/stream?p=${encrypted}&format=mp4`;
+    } else if (f.hlsUrl) {
+      const encrypted = await encryptPayload(f.hlsUrl, bestCookies);
       finalStreamUrl = `/api/stream?p=${encrypted}`;
     }
 
