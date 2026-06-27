@@ -43,15 +43,17 @@ function VideoPlayer({ activeFile, workerUrl }: VideoPlayerProps) {
   const [currentQuality, setCurrentQuality] = useState<string>(() => {
     const qualities = activeFile.fast_stream_url || {};
     const keys = Object.keys(qualities).filter(k => qualities[k]);
-    return keys.includes("Original (Full)")
-      ? "Original (Full)"
-      : keys.includes("480p")
-        ? "480p"
-        : keys.includes("360p")
-          ? "360p"
-          : keys.includes("720p")
-            ? "720p"
-            : keys[0] || "default";
+    // Prioritize the full video ("Original (Full)") by default so the full length plays.
+    // If it's not present, fall back to segmented preview qualities.
+    const preferredOrder = [
+      "Original (Full)",
+      "480p", "360p", "720p", "1080p",
+      "Preview (480p)", "Preview (360p)", "Preview (720p)", "Preview (1080p)"
+    ];
+    for (const key of preferredOrder) {
+      if (keys.includes(key)) return key;
+    }
+    return keys[0] || "default";
   });
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);

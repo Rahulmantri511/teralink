@@ -122,16 +122,28 @@ export async function resolveTerabox(
       };
     }
 
-    // ── Call Local Resolver ──────────────────────────────────────────────────
+    // ── Call Local/Worker Resolver ──────────────────────────────────────────
     let workerData: any;
     try {
-      workerData = await resolveFullLocal(code, {
-        ndus:      process.env.TERABOX_NDUS,
-        ndut_fmt:  process.env.TERABOX_NDUT_FMT,
-        ndut_fmv:  process.env.TERABOX_NDUT_FMV,
-        csrf:      process.env.TERABOX_CSRF,
-        browserid: process.env.TERABOX_BROWSERID,
-      }, workerUrl, dir, userAgent);
+      if (process.env.NODE_ENV === 'production' || process.env.USE_WORKER === 'true') {
+        // Production/Worker Mode: Delegate to Cloudflare Worker (protects server IP & uses free edge streaming bandwidth)
+        workerData = await callWorker(code, workerUrl, {
+          ndus:      process.env.TERABOX_NDUS,
+          ndut_fmt:  process.env.TERABOX_NDUT_FMT,
+          ndut_fmv:  process.env.TERABOX_NDUT_FMV,
+          csrf:      process.env.TERABOX_CSRF,
+          browserid: process.env.TERABOX_BROWSERID,
+        }, dir);
+      } else {
+        // Local Dev Mode: Resolve locally
+        workerData = await resolveFullLocal(code, {
+          ndus:      process.env.TERABOX_NDUS,
+          ndut_fmt:  process.env.TERABOX_NDUT_FMT,
+          ndut_fmv:  process.env.TERABOX_NDUT_FMV,
+          csrf:      process.env.TERABOX_CSRF,
+          browserid: process.env.TERABOX_BROWSERID,
+        }, workerUrl, dir, userAgent);
+      }
     } catch (err: any) {
       console.error('[resolver] Error:', err?.message);
       return { error: `Resolver error: ${err?.message}` };

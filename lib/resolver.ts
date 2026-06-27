@@ -25,10 +25,10 @@ const FILELIST_CACHE_TTL = 30;  // seconds
 const BYTES_PER_CHUNK = 4 * 1024 * 1024;
 
 // ── In-Memory Caches ──────────────────────────────────────────────────────────
-const sessionCache = new Map<string, { expires: number; value: any }>();
-const filelistCache = new Map<string, { expires: number; value: any }>();
+const sessionCache = new Map<string, { expires: number; value: unknown }>();
+const filelistCache = new Map<string, { expires: number; value: unknown }>();
 
-function cacheGet(cache: Map<string, any>, key: string) {
+function cacheGet(cache: Map<string, { expires: number; value: unknown }>, key: string): unknown {
   const hit = cache.get(key);
   if (!hit) return null;
   if (Date.now() > hit.expires) {
@@ -38,7 +38,7 @@ function cacheGet(cache: Map<string, any>, key: string) {
   return hit.value;
 }
 
-function cachePut(cache: Map<string, any>, key: string, value: any, ttl: number) {
+function cachePut(cache: Map<string, { expires: number; value: unknown }>, key: string, value: unknown, ttl: number) {
   cache.set(key, { expires: Date.now() + ttl * 1000, value });
 }
 
@@ -61,10 +61,10 @@ async function proxyFetch(url: string, options: RequestInit = {}): Promise<Respo
   const dispatcher = getDispatcher();
   const fetchOpts = { ...options };
   if (dispatcher) {
-    // @ts-ignore
+    // @ts-expect-error dispatcher is an undici-specific option on RequestInit
     fetchOpts.dispatcher = dispatcher;
   }
-  // @ts-ignore
+  // @ts-expect-error dispatcher option on undiciFetch is supported
   return undiciFetch(url, fetchOpts);
 }
 
@@ -90,17 +90,7 @@ function hmacSha1(key: string, message: string): string {
   return crypto.createHmac('sha1', key).update(message).digest('hex');
 }
 
-function b64Encode(str: string): string {
-  return Buffer.from(str).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
-
-function b64Decode(str: string): string {
-  try {
-    return Buffer.from(str.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf-8');
-  } catch {
-    return decodeURIComponent(str);
-  }
-}
+// Unused b64Encode and b64Decode removed
 
 function parseCookies(setCookieHeaders: string[]): string {
   return setCookieHeaders.map(c => c.split(';')[0]).join('; ');
@@ -147,7 +137,22 @@ function formatSize(bytes: number): string {
   return `${size.toFixed(2)} ${units[i]}`;
 }
 
-function mapFile(f: any) {
+interface TeraBoxRawFile {
+  fs_id?: string | number;
+  server_filename?: string;
+  filename?: string;
+  size?: string | number;
+  md5?: string;
+  dlink?: string;
+  thumbs?: {
+    url3?: string;
+    url2?: string;
+  };
+  isdir?: string | number;
+  path?: string;
+}
+
+function mapFile(f: TeraBoxRawFile) {
   return {
     fs_id:     String(f.fs_id ?? ''),
     filename:  f.server_filename || f.filename || '',
@@ -182,7 +187,7 @@ function extractBdstoken(html: string): string {
 async function getSession(domain: string, shortCode: string, premiumCookies = '', ua = UA) {
   const cookieHash = premiumCookies ? simpleHash(premiumCookies) : 'guest';
   const cacheKey = `session:${domain}:${shortCode}:${cookieHash}`;
-  const cached = cacheGet(sessionCache, cacheKey);
+  const cached = cacheGet(sessionCache, cacheKey) as { cookies: string; jsToken: string; bdstoken: string; browserid: string } | null;
   if (cached) return { ...cached, domain };
 
   const headers: Record<string, string> = {
@@ -199,13 +204,12 @@ async function getSession(domain: string, shortCode: string, premiumCookies = ''
     signal: AbortSignal.timeout(12000),
   });
 
-  const setCookies = resp.headers.get('set-cookie');
   // Node.js Headers.get() for 'set-cookie' yields a comma-separated string of cookies,
   // or we can use resp.headers.getSetCookie() if supported.
   const getSetCookieList = () => {
-    // @ts-ignore
+    // @ts-expect-error getSetCookie is undici specific
     if (typeof resp.headers.getSetCookie === 'function') {
-      // @ts-ignore
+      // @ts-expect-error getSetCookie is undici specific
       return resp.headers.getSetCookie();
     }
     const raw = resp.headers.get('set-cookie');
@@ -226,7 +230,7 @@ async function getSession(domain: string, shortCode: string, premiumCookies = ''
 async function callShorturlinfo(domain: string, shortCode: string, jsToken: string, cookies: string, dir = '', ua = UA) {
   const cookieHash = simpleHash(cookies);
   const cacheKey = `filelist:${domain}:${shortCode}:${dir}:${cookieHash}`;
-  const cached = cacheGet(filelistCache, cacheKey);
+  const cached = cacheGet(filelistCache, cacheKey) as { list: unknown[]; shareid: string | number; uk: string; shareInfo: unknown } | null;
   if (cached) return cached;
 
   const result = await _callShorturlinfoInner(domain, shortCode, jsToken, cookies, dir, ua);
@@ -258,7 +262,7 @@ async function _callShorturlinfoInner(domain: string, shortCode: string, jsToken
       },
       signal: AbortSignal.timeout(12000),
     });
-    const listJson = await listResp.json() as any;
+    const listJson = (await listResp.json()) as { errno?: number; list?: unknown[]; shareid?: string | number; share_id?: string | number; uk?: string; share_info?: unknown };
     if (listJson.errno) throw new Error(describeTeraBoxErrno(listJson.errno, domain));
     if (!listJson.list?.length) throw new Error('empty list');
     return {
@@ -288,7 +292,7 @@ async function _callShorturlinfoInner(domain: string, shortCode: string, jsToken
         },
         signal: AbortSignal.timeout(12000),
       });
-      const json = await resp.json() as any;
+      const json = (await resp.json()) as { errno?: number; list?: unknown[] };
       if (!json.errno && json.list?.length) return json;
     } catch {}
   }
@@ -311,7 +315,7 @@ async function _callShorturlinfoInner(domain: string, shortCode: string, jsToken
     },
     signal: AbortSignal.timeout(12000),
   });
-  const listJson = await listResp.json() as any;
+  const listJson = (await listResp.json()) as { errno?: number; list?: unknown[]; shareid?: string | number; share_id?: string | number; uk?: string; share_info?: unknown };
   if (listJson.errno) throw new Error(`errno ${listJson.errno} on ${domain}`);
   if (!listJson.list?.length) throw new Error('empty list');
   return {
@@ -351,13 +355,13 @@ async function getDlink(domain: string, fsId: string, uk: string, shareId: strin
   }
 
   try {
-    const j = await dlResp.json() as any;
+    const j = (await dlResp.json()) as { errno?: number; list?: { dlink?: string }[]; dlink?: string; show_msg?: string };
     console.log(`[local-resolver] share/download errno: ${j.errno} on ${domain}`);
     if (j.errno) throw new Error(describeTeraBoxErrno(j.errno, domain) + (j.show_msg ? ` (${j.show_msg})` : ''));
     if (j.list?.[0]?.dlink) return j.list[0].dlink;
     if (j.dlink) return j.dlink;
-  } catch (e: any) {
-    if (e.message?.includes('share/download')) throw e;
+  } catch (e: unknown) {
+    if (e instanceof Error && e.message?.includes('share/download')) throw e;
   }
 
   // Fallback — /api/filemetas
@@ -380,11 +384,11 @@ async function getDlink(domain: string, fsId: string, uk: string, shareId: strin
     if (fmResp.status === 401 || fmResp.status === 403) {
       throw new Error(`filemetas returned ${fmResp.status} (TeraBox session likely expired)`);
     }
-    const fmJson = await fmResp.json() as any;
+    const fmJson = (await fmResp.json()) as { errno?: number; info?: { dlink?: string }[] };
     if (fmJson.errno) throw new Error(describeTeraBoxErrno(fmJson.errno, domain));
     if (fmJson.info?.[0]?.dlink) return fmJson.info[0].dlink;
-  } catch (e: any) {
-    if (e.message?.includes('filemetas') || e.message?.includes('share/download')) throw e;
+  } catch (e: unknown) {
+    if (e instanceof Error && (e.message?.includes('filemetas') || e.message?.includes('share/download'))) throw e;
   }
 
   return '';
@@ -421,9 +425,11 @@ async function resolveRedirect(dlink: string, cookies: string) {
 
     if (resp.ok || resp.status === 206) return dlink;
     throw new Error(`dlink HEAD returned ${resp.status}`);
-  } catch (e: any) {
-    if (e.message?.includes('session likely expired') || e.message?.includes('auth failed')) throw e;
-    console.log('[redirect] Failed to follow dlink redirect:', e?.message);
+  } catch (e: unknown) {
+    if (e instanceof Error) {
+      if (e.message?.includes('session likely expired') || e.message?.includes('auth failed')) throw e;
+      console.log('[redirect] Failed to follow dlink redirect:', e.message);
+    }
     throw e;
   }
 }
@@ -451,9 +457,11 @@ async function getFileSize(cdnUrl: string, cookies: string) {
       const m = cr.match(/\/(\d+)$/);
       if (m) return parseInt(m[1], 10);
     }
-  } catch (e: any) {
-    if (e.message?.includes('session likely expired')) throw e;
-    console.log('[size] Failed to get file size:', e?.message);
+  } catch (e: unknown) {
+    if (e instanceof Error) {
+      if (e.message?.includes('session likely expired')) throw e;
+      console.log('[size] Failed to get file size:', e.message);
+    }
     throw e;
   }
   return 0;
@@ -499,16 +507,16 @@ async function getStreamingUrl(domain: string, shareId: string, uk: string, fsId
   if (contentType.includes('mpegurl') || contentType.includes('m3u8')) {
     finalUrl = `https://${domain}/share/streaming?${params}`;
   } else if (contentType.includes('json')) {
-    const json = await resp.json() as any;
+    const json = (await resp.json()) as { errno?: number; m3u8_url?: string; url?: string; hls_mp4_url?: string; show_msg?: string };
     if (json.errno) throw new Error(describeTeraBoxErrno(json.errno, domain) + (json.show_msg ? ` (${json.show_msg})` : ''));
-    finalUrl = json.m3u8_url || json.url || json.hls_mp4_url;
+    finalUrl = json.m3u8_url || json.url || json.hls_mp4_url || '';
   } else {
     const text = await resp.text().catch(() => '');
     if (text.startsWith('#EXTM3U')) {
       finalUrl = `https://${domain}/share/streaming?${params}`;
     } else if (text.includes('errno')) {
-      const j = JSON.parse(text);
-      throw new Error(describeTeraBoxErrno(j.errno, domain) + (j.show_msg ? ` (${j.show_msg})` : ''));
+      const j = JSON.parse(text) as { errno?: number; show_msg?: string };
+      throw new Error(describeTeraBoxErrno(j.errno ?? '', domain) + (j.show_msg ? ` (${j.show_msg})` : ''));
     } else {
       throw new Error(`Unknown streaming response (${resp.status}): ${text.substring(0, 100)}`);
     }
@@ -522,7 +530,7 @@ async function getStreamingUrl(domain: string, shareId: string, uk: string, fsId
 }
 
 // ── Main resolve ──────────────────────────────────────────────────────────────
-export async function resolveFullLocal(shortCode: string, auth: any = {}, workerBase = '', dir = '', userAgent = '') {
+export async function resolveFullLocal(shortCode: string, auth: { ndus?: string; ndut_fmt?: string; ndut_fmv?: string; csrf?: string; browserid?: string } = {}, workerBase = '', dir = '', _userAgent = '') {
   console.log(`[local-resolver] Resolving: ${shortCode}`);
 
   // We MUST use the desktop UA when fetching from TeraBox, otherwise TeraBox treats it as mobile and limits video playback to 30s or blocks dlinks.
@@ -533,11 +541,13 @@ export async function resolveFullLocal(shortCode: string, auth: any = {}, worker
     premCookiesStr = `ndus=${auth.ndus}`;
   }
 
-  let session: any = null;
+  let session: { cookies: string; jsToken: string; bdstoken: string; browserid: string; domain: string } | null = null;
   try {
     session = await getSession('dm.1024tera.com', shortCode, premCookiesStr, fetchUa);
-  } catch (err: any) {
-    console.log(`[local-resolver] Primary domain session lookup failed: ${err?.message}. Trying fallbacks...`);
+  } catch (err: unknown) {
+    if (err instanceof Error) {
+      console.log(`[local-resolver] Primary domain session lookup failed: ${err.message}. Trying fallbacks...`);
+    }
   }
 
   let bestCookies = premCookiesStr || '', bestJsToken = '', bestBdstoken = '',
@@ -599,8 +609,10 @@ export async function resolveFullLocal(shortCode: string, auth: any = {}, worker
       bestDomain = d;
       console.log(`[local-resolver] Got ${files.length} file(s) from ${d}, uk=${uk}, shareid=${shareId}`);
       break;
-    } catch (err: any) {
-      console.log(`[local-resolver] callShorturlinfo failed on ${d}: ${err?.message}`);
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        console.log(`[local-resolver] callShorturlinfo failed on ${d}: ${err.message}`);
+      }
     }
   }
 
@@ -634,12 +646,13 @@ export async function resolveFullLocal(shortCode: string, auth: any = {}, worker
           domain: d,
           error: 'getDlink returned empty (no dlink in response)',
         });
-      } catch (err: any) {
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : 'getDlink threw';
         f.debugInfo.dlinkErrors.push({
           domain: d,
-          error: err?.message ?? 'getDlink threw',
+          error: message,
         });
-        const errMsg = err?.message?.toLowerCase() || '';
+        const errMsg = message.toLowerCase();
         const isAuthError = errMsg.includes('expired') || 
                             errMsg.includes('verify') || 
                             errMsg.includes('400141') || 
@@ -650,7 +663,7 @@ export async function resolveFullLocal(shortCode: string, auth: any = {}, worker
           dlinkErrored = true;
           break; // session issue, don't try other domains
         }
-        console.log(`[local-resolver] getDlink failed on ${d}: ${err?.message}`);
+        console.log(`[local-resolver] getDlink failed on ${d}: ${message}`);
       }
     }
 
@@ -670,11 +683,6 @@ export async function resolveFullLocal(shortCode: string, auth: any = {}, worker
 
         if (fileSize > 0) {
           const encryptedPayload = await encryptPayload(cdnUrl, bestCookies);
-          const fastStreamParams = new URLSearchParams({
-            p:       encryptedPayload,
-            size:    String(fileSize),
-            name:    f.filename,
-          });
           f.fastStreamUrl = `/api/stream?p=${encryptedPayload}&format=mp4`;
           dlinkStatus = 'ok';
           console.log(`[local-resolver] fast_stream URL built for ${f.filename}, size=${fileSize}, segments=${Math.ceil(fileSize / BYTES_PER_CHUNK)}`);
@@ -682,13 +690,14 @@ export async function resolveFullLocal(shortCode: string, auth: any = {}, worker
           dlinkStatus = 'zero_size';
           f.debugInfo.dlinkErrors.push({ error: 'CDN returned 0 bytes for content-length' });
         }
-      } catch (e: any) {
-        const isAuthError = e.message?.toLowerCase().includes('expired') || e.message?.toLowerCase().includes('auth failed');
+      } catch (e: unknown) {
+        const message = e instanceof Error ? e.message : 'fast_stream build failed';
+        const isAuthError = message.toLowerCase().includes('expired') || message.toLowerCase().includes('auth failed');
         dlinkStatus = isAuthError ? 'dead' : 'error';
         f.debugInfo.dlinkErrors.push({
-          error: e?.message ?? 'fast_stream build failed',
+          error: message,
         });
-        console.log(`[local-resolver] dlink failed for ${f.filename} (status: ${dlinkStatus}): ${e?.message}`);
+        console.log(`[local-resolver] dlink failed for ${f.filename} (status: ${dlinkStatus}): ${message}`);
       }
     }
     f.debugInfo.dlinkStatus = dlinkStatus;
@@ -711,11 +720,11 @@ export async function resolveFullLocal(shortCode: string, auth: any = {}, worker
             break;
           }
           f.debugInfo.streamErrors.push({ domain: d, quality: '480', error: 'getStreamingUrl returned empty' });
-        } catch (err: any) {
+        } catch (err: unknown) {
           f.debugInfo.streamErrors.push({
             domain: d,
             quality: '480',
-            error: err?.message ?? 'Unknown error',
+            error: err instanceof Error ? err.message : 'Unknown error',
           });
         }
       }
@@ -745,7 +754,7 @@ export async function resolveFullLocal(shortCode: string, auth: any = {}, worker
     if (f.qualities) {
       for (const qKey of Object.keys(f.qualities)) {
         const encrypted = await encryptPayload(f.qualities[qKey], bestCookies);
-        fastStreamUrlMap[`Preview (${qKey}p)`] = `/api/stream?p=${encrypted}`;
+        fastStreamUrlMap[`${qKey}p`] = `/api/stream?p=${encrypted}`;
       }
     }
 
