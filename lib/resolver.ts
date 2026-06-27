@@ -207,9 +207,7 @@ async function getSession(domain: string, shortCode: string, premiumCookies = ''
   // Node.js Headers.get() for 'set-cookie' yields a comma-separated string of cookies,
   // or we can use resp.headers.getSetCookie() if supported.
   const getSetCookieList = () => {
-    // @ts-expect-error getSetCookie is undici specific
     if (typeof resp.headers.getSetCookie === 'function') {
-      // @ts-expect-error getSetCookie is undici specific
       return resp.headers.getSetCookie();
     }
     const raw = resp.headers.get('set-cookie');
@@ -226,11 +224,20 @@ async function getSession(domain: string, shortCode: string, premiumCookies = ''
   return { ...session, domain };
 }
 
+interface ShortUrlInfoResponse {
+  list?: TeraBoxRawFile[];
+  shareid?: string | number;
+  share_id?: string | number;
+  uk?: string;
+  shareInfo?: unknown;
+  errno?: number;
+}
+
 // ── File list via /api/shorturlinfo ───────────────────────────────────────────
-async function callShorturlinfo(domain: string, shortCode: string, jsToken: string, cookies: string, dir = '', ua = UA) {
+async function callShorturlinfo(domain: string, shortCode: string, jsToken: string, cookies: string, dir = '', ua = UA): Promise<ShortUrlInfoResponse> {
   const cookieHash = simpleHash(cookies);
   const cacheKey = `filelist:${domain}:${shortCode}:${dir}:${cookieHash}`;
-  const cached = cacheGet(filelistCache, cacheKey) as { list: unknown[]; shareid: string | number; uk: string; shareInfo: unknown } | null;
+  const cached = cacheGet(filelistCache, cacheKey) as ShortUrlInfoResponse | null;
   if (cached) return cached;
 
   const result = await _callShorturlinfoInner(domain, shortCode, jsToken, cookies, dir, ua);
@@ -238,7 +245,7 @@ async function callShorturlinfo(domain: string, shortCode: string, jsToken: stri
   return result;
 }
 
-async function _callShorturlinfoInner(domain: string, shortCode: string, jsToken: string, cookies: string, dir = '', ua = UA) {
+async function _callShorturlinfoInner(domain: string, shortCode: string, jsToken: string, cookies: string, dir = '', ua = UA): Promise<ShortUrlInfoResponse> {
   const rawShortCode = (shortCode.startsWith('1') && shortCode.length === 23)
     ? shortCode.substring(1)
     : shortCode;
@@ -262,7 +269,7 @@ async function _callShorturlinfoInner(domain: string, shortCode: string, jsToken
       },
       signal: AbortSignal.timeout(12000),
     });
-    const listJson = (await listResp.json()) as { errno?: number; list?: unknown[]; shareid?: string | number; share_id?: string | number; uk?: string; share_info?: unknown };
+    const listJson = (await listResp.json()) as { errno?: number; list?: TeraBoxRawFile[]; shareid?: string | number; share_id?: string | number; uk?: string; share_info?: unknown };
     if (listJson.errno) throw new Error(describeTeraBoxErrno(listJson.errno, domain));
     if (!listJson.list?.length) throw new Error('empty list');
     return {
@@ -292,7 +299,7 @@ async function _callShorturlinfoInner(domain: string, shortCode: string, jsToken
         },
         signal: AbortSignal.timeout(12000),
       });
-      const json = (await resp.json()) as { errno?: number; list?: unknown[] };
+      const json = (await resp.json()) as { errno?: number; list?: TeraBoxRawFile[] };
       if (!json.errno && json.list?.length) return json;
     } catch {}
   }
@@ -315,7 +322,7 @@ async function _callShorturlinfoInner(domain: string, shortCode: string, jsToken
     },
     signal: AbortSignal.timeout(12000),
   });
-  const listJson = (await listResp.json()) as { errno?: number; list?: unknown[]; shareid?: string | number; share_id?: string | number; uk?: string; share_info?: unknown };
+  const listJson = (await listResp.json()) as { errno?: number; list?: TeraBoxRawFile[]; shareid?: string | number; share_id?: string | number; uk?: string; share_info?: unknown };
   if (listJson.errno) throw new Error(`errno ${listJson.errno} on ${domain}`);
   if (!listJson.list?.length) throw new Error('empty list');
   return {
@@ -529,6 +536,27 @@ async function getStreamingUrl(domain: string, shareId: string, uk: string, fsId
   throw new Error('No valid stream URL resolved');
 }
 
+interface MappedFile {
+  fs_id: string;
+  filename: string;
+  size: number;
+  md5: string;
+  dlink: string;
+  thumbnail: string | null;
+  isDir: boolean;
+  path: string;
+  sizeFormatted?: string;
+  hlsUrl?: string;
+  qualities?: Record<string, string>;
+  fastStreamUrl?: string;
+  dlinkResolved?: string;
+  debugInfo?: {
+    streamErrors: { domain?: string; quality?: string; error?: string }[];
+    dlinkErrors: { domain?: string; error?: string }[];
+    dlinkStatus?: string;
+  };
+}
+
 // ── Main resolve ──────────────────────────────────────────────────────────────
 export async function resolveFullLocal(shortCode: string, auth: { ndus?: string; ndut_fmt?: string; ndut_fmv?: string; csrf?: string; browserid?: string } = {}, workerBase = '', dir = '', _userAgent = '') {
   console.log(`[local-resolver] Resolving: ${shortCode}`);
@@ -593,7 +621,7 @@ export async function resolveFullLocal(shortCode: string, auth: { ndus?: string;
     return { success: false, error: 'Could not get guest session from any domain.' };
   }
 
-  let files = [], shareId = '', uk = '';
+  let files: MappedFile[] = [], shareId = '', uk = '';
   const MAX_SEQUENTIAL_FALLBACKS = 3;
   const listDomainOrder = [
     bestDomain,
@@ -642,13 +670,13 @@ export async function resolveFullLocal(shortCode: string, auth: { ndus?: string;
           console.log(`[local-resolver] Got dlink for ${f.filename} from ${d}`);
           break;
         }
-        f.debugInfo.dlinkErrors.push({
+        f.debugInfo!.dlinkErrors.push({
           domain: d,
           error: 'getDlink returned empty (no dlink in response)',
         });
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : 'getDlink threw';
-        f.debugInfo.dlinkErrors.push({
+        f.debugInfo!.dlinkErrors.push({
           domain: d,
           error: message,
         });
@@ -688,19 +716,19 @@ export async function resolveFullLocal(shortCode: string, auth: { ndus?: string;
           console.log(`[local-resolver] fast_stream URL built for ${f.filename}, size=${fileSize}, segments=${Math.ceil(fileSize / BYTES_PER_CHUNK)}`);
         } else {
           dlinkStatus = 'zero_size';
-          f.debugInfo.dlinkErrors.push({ error: 'CDN returned 0 bytes for content-length' });
+          f.debugInfo!.dlinkErrors.push({ error: 'CDN returned 0 bytes for content-length' });
         }
       } catch (e: unknown) {
         const message = e instanceof Error ? e.message : 'fast_stream build failed';
         const isAuthError = message.toLowerCase().includes('expired') || message.toLowerCase().includes('auth failed');
         dlinkStatus = isAuthError ? 'dead' : 'error';
-        f.debugInfo.dlinkErrors.push({
+        f.debugInfo!.dlinkErrors.push({
           error: message,
         });
         console.log(`[local-resolver] dlink failed for ${f.filename} (status: ${dlinkStatus}): ${message}`);
       }
     }
-    f.debugInfo.dlinkStatus = dlinkStatus;
+    f.debugInfo!.dlinkStatus = dlinkStatus;
 
     const skipHls = dlinkStatus === 'dead' || dlinkErrored;
     if (!skipHls && shareId && uk) {
@@ -719,9 +747,9 @@ export async function resolveFullLocal(shortCode: string, auth: { ndus?: string;
             console.log(`[local-resolver] Got HLS streaming URL for ${f.filename} from ${d}`);
             break;
           }
-          f.debugInfo.streamErrors.push({ domain: d, quality: '480', error: 'getStreamingUrl returned empty' });
+          f.debugInfo!.streamErrors.push({ domain: d, quality: '480', error: 'getStreamingUrl returned empty' });
         } catch (err: unknown) {
-          f.debugInfo.streamErrors.push({
+          f.debugInfo!.streamErrors.push({
             domain: d,
             quality: '480',
             error: err instanceof Error ? err.message : 'Unknown error',
@@ -730,7 +758,7 @@ export async function resolveFullLocal(shortCode: string, auth: { ndus?: string;
       }
     } else if (skipHls) {
       console.log(`[local-resolver] Skipping HLS for ${f.filename} — dlink is dead, session likely expired`);
-      f.debugInfo.streamErrors.push({
+      f.debugInfo!.streamErrors.push({
         error: 'HLS skipped: dlink returned 4xx (session expired or verification required)',
       });
     }
