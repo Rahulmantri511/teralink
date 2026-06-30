@@ -813,7 +813,10 @@ export async function resolveFullLocal(shortCode: string, auth: { ndus?: string;
     }
 
     let primaryQuality = '360p';
-    if (fastStreamUrlMap['Original (Full)']) primaryQuality = 'Original (Full)';
+    if (fastStreamUrlMap['480p']) primaryQuality = '480p';
+    else if (fastStreamUrlMap['360p']) primaryQuality = '360p';
+    else if (fastStreamUrlMap['720p']) primaryQuality = '720p';
+    else if (fastStreamUrlMap['Original (Full)']) primaryQuality = 'Original (Full)';
     else if (fastStreamUrlMap['Preview (480p)']) primaryQuality = 'Preview (480p)';
     else if (fastStreamUrlMap['Preview (360p)']) primaryQuality = 'Preview (360p)';
     else if (Object.keys(fastStreamUrlMap).length > 0) primaryQuality = Object.keys(fastStreamUrlMap)[0];

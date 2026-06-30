@@ -46,8 +46,8 @@ function VideoPlayer({ activeFile, workerUrl }: VideoPlayerProps) {
     // Prioritize the full video ("Original (Full)") by default so the full length plays.
     // If it's not present, fall back to segmented preview qualities.
     const preferredOrder = [
-      "Original (Full)",
       "480p", "360p", "720p", "1080p",
+      "Original (Full)",
       "Preview (480p)", "Preview (360p)", "Preview (720p)", "Preview (1080p)"
     ];
     for (const key of preferredOrder) {
