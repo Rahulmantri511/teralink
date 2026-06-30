@@ -18,7 +18,6 @@ const CHANNEL = 'dubox';
 const DOMAINS = [
   'dm.1024tera.com',
   'www.1024tera.com',
-  'www.terabox.app',
   'www.mirrobox.com',
   'www.nephobox.com',
   'momerybox.com',
@@ -26,7 +25,50 @@ const DOMAINS = [
   'freeterabox.com',
   '4funbox.com',
   'www.terabox.com',
+  'www.terasharefile.com',
+  '1024terabox.com',
 ];
+
+// ── Account rotation pool ─────────────────────────────────────────────────────
+// 4 TeraBox accounts spread the load. Each account handles ~25% of requests.
+// We pick accounts deterministically by shortCode so the same link always
+// hits the same account — this keeps session caches warm and avoids
+// triggering TeraBox's multi-IP anomaly detection on a single account.
+//
+// Accounts are defined as env vars in Cloudflare:
+//   TERABOX_NDUS_1 = YSCmuhMteHuiioDqBfYg8czbQiyWKQVWJlnWu8H6
+//   TERABOX_NDUS_2 = Y2WZ_XNpeHuiZ4L-IzFIlGKP1YlvB632vz_aNUE1
+//   TERABOX_NDUS_3 = YyoZ_XNpeHuiPqWiaW7w7-4e2S68UBxm_KCva7_v
+//   TERABOX_NDUS_4 = YQab_XNpeHui4Rli7AW0lJU0bP9Txu2cquzEPDYJ
+
+/**
+ * Pick a ndus cookie from the rotation pool based on a hash of the shortCode.
+ * Same shortCode → same account (cache-friendly).
+ * Different shortCodes → spread evenly across all 4 accounts.
+ */
+function pickAccount(env, shortCode) {
+  // Collect available accounts (skip empty/missing)
+  const pool = [
+    env.TERABOX_NDUS_1 || '',
+    env.TERABOX_NDUS_2 || '',
+    env.TERABOX_NDUS_3 || '',
+    env.TERABOX_NDUS_4 || '',
+    // Legacy single-account fallback
+    env.TERABOX_NDUS   || '',
+  ].filter(Boolean);
+
+  if (pool.length === 0) return '';
+  if (pool.length === 1) return pool[0];
+
+  // Simple deterministic hash: sum of char codes mod pool length
+  let hash = 0;
+  for (let i = 0; i < shortCode.length; i++) {
+    hash = (hash * 31 + shortCode.charCodeAt(i)) >>> 0; // keep unsigned 32-bit
+  }
+  const idx = hash % pool.length;
+  console.log(`[worker] Account rotation: picked account #${idx + 1} of ${pool.length} for shortCode ${shortCode.slice(0,8)}...`);
+  return pool[idx];
+}
 
 const ALLOWED_HOSTS = [
   'terabox.com',
@@ -529,7 +571,7 @@ async function getFileSize(cdnUrl, cookies) {
 
 // ── Generate synthetic M3U8 from byte ranges ──────────────────────────────────
 
-function buildM3U8(workerBase, p, fileSize, filename) {
+function buildM3U8(workerBase, p, fileSize) {
   const chunkSize = BYTES_PER_CHUNK;
   const segments = [];
   let offset = 0;
@@ -561,12 +603,6 @@ function buildM3U8(workerBase, p, fileSize, filename) {
 
   lines.push('#EXT-X-ENDLIST');
   return lines.join('\n');
-}
-
-// ── Compute streaming sign ────────────────────────────────────────────────────
-
-async function computeStreamSign(browserid, timestamp) {
-  return hmacSha1(SIGN_KEY, CLIENTTYPE + CHANNEL + browserid + timestamp);
 }
 
 // ── /share/streaming → HLS m3u8 (30s preview, kept for backwards compat) ──────
@@ -647,9 +683,10 @@ const MAX_SEQUENTIAL_FALLBACKS = 3;
 async function resolveFull(shortCode, auth = {}, workerBase = '', dir = '', encryptionKey = 'default-secret-key-change-me-987') {
   console.log(`[worker] Resolving: ${shortCode}`);
 
-  // Construct premium cookies string if provided
+  // Construct premium cookies string from provided auth or rotation pool
   let premCookiesStr = '';
   if (auth && auth.ndus) {
+    // Per-request auth takes priority (e.g. passed explicitly via query param)
     const premParts = [];
     premParts.push(`ndus=${auth.ndus}`);
     if (auth.ndut_fmt) premParts.push(`ndut_fmt=${auth.ndut_fmt}`);
@@ -657,6 +694,9 @@ async function resolveFull(shortCode, auth = {}, workerBase = '', dir = '', encr
     if (auth.csrf)     premParts.push(`csrfToken=${auth.csrf}`);
     if (auth.browserid) premParts.push(`browserid=${auth.browserid}`);
     premCookiesStr = premParts.join('; ');
+  } else if (auth._ndusFromPool) {
+    // Injected by the /resolve handler from the rotation pool
+    premCookiesStr = `ndus=${auth._ndusFromPool}`;
   }
 
   // Step 1: Get guest/premium session — probe top domains in parallel.
@@ -703,6 +743,7 @@ async function resolveFull(shortCode, auth = {}, workerBase = '', dir = '', encr
     ...DOMAINS.filter(d => d !== bestDomain).slice(0, MAX_SEQUENTIAL_FALLBACKS),
   ];
 
+  const listErrors = [];
   for (const d of listDomainOrder) {
     try {
       const api = await callShorturlinfo(d, shortCode, bestJsToken, bestCookies, dir);
@@ -713,12 +754,13 @@ async function resolveFull(shortCode, auth = {}, workerBase = '', dir = '', encr
       console.log(`[worker] Got ${files.length} file(s) from ${d}, uk=${uk}, shareid=${shareId}`);
       break;
     } catch (err) {
+      listErrors.push(`${d}: ${err?.message || 'Unknown error'}`);
       console.log(`[worker] callShorturlinfo failed on ${d}: ${err?.message}`);
     }
   }
 
   if (!files.length) {
-    return { success: false, error: 'Could not fetch file list from any domain.' };
+    return { success: false, error: `Could not fetch file list from any domain. Details: ${listErrors.join(' | ')}` };
   }
 
   // Step 3: For each file, build the dlink-based fast_stream M3U8 (PRIMARY).
@@ -781,14 +823,9 @@ async function resolveFull(shortCode, auth = {}, workerBase = '', dir = '', encr
 
         if (fileSize > 0) {
           const encryptedPayload = await encryptPayload(cdnUrl, bestCookies, encryptionKey);
-          const fastStreamParams = new URLSearchParams({
-            p:       encryptedPayload,
-            size:    String(fileSize),
-            name:    f.filename,
-          });
-          f.fastStreamUrl = `${workerBase}/fast_stream?${fastStreamParams}`;
+          f.fastStreamUrl = `${workerBase}/stream?p=${encryptedPayload}&format=mp4`;
           dlinkStatus = 'ok';
-          console.log(`[worker] fast_stream URL built for ${f.filename}, size=${fileSize}, segments=${Math.ceil(fileSize / BYTES_PER_CHUNK)}`);
+          console.log(`[worker] Progressive stream URL built for ${f.filename}, size=${fileSize}`);
         } else {
           dlinkStatus = 'zero_size';
           f.debugInfo.dlinkErrors.push({ error: 'CDN returned 0 bytes for content-length' });
@@ -1039,7 +1076,7 @@ function textResp(text, status = 200) {
 
 // ── Worker entry ──────────────────────────────────────────────────────────────
 
-export default {
+const handler = {
   async fetch(request, env) {
     const url = new URL(request.url);
     const workerBase = `${url.protocol}//${url.host}`;
@@ -1061,18 +1098,24 @@ export default {
         return jsonResp({ error: 'Invalid or malformed ?code=' }, 400);
       }
       try {
+        // Pick a rotated account for this shortCode (deterministic by shortCode hash)
+        const rotatedNdus = pickAccount(env, code);
+
         const auth = {
-          ndus:      url.searchParams.get('ndus') || '',
-          ndut_fmt:  url.searchParams.get('ndut_fmt') || '',
-          ndut_fmv:  url.searchParams.get('ndut_fmv') || '',
-          csrf:      url.searchParams.get('csrf') || '',
-          browserid: url.searchParams.get('browserid') || '',
+          // Explicit query params override rotation (for admin/debug use)
+          ndus:           url.searchParams.get('ndus') || '',
+          ndut_fmt:       url.searchParams.get('ndut_fmt') || '',
+          ndut_fmv:       url.searchParams.get('ndut_fmv') || '',
+          csrf:           url.searchParams.get('csrf') || '',
+          browserid:      url.searchParams.get('browserid') || '',
+          // Rotation pool fallback (used when no explicit ndus is passed)
+          _ndusFromPool:  url.searchParams.get('ndus') ? '' : rotatedNdus,
         };
         const encryptionKey = env.ENCRYPTION_KEY || 'default-secret-key-change-me-987';
         const result = await resolveFull(code, auth, workerBase, dir, encryptionKey);
         return jsonResp(result, result.status === 'success' ? 200 : 500);
-      } catch (err) {
-        return jsonResp({ error: err?.message ?? 'Worker error' }, 500);
+      } catch {
+        return jsonResp({ error: 'Worker error' }, 500);
       }
     }
 
@@ -1080,7 +1123,6 @@ export default {
     if (url.pathname === '/fast_stream') {
       const p    = url.searchParams.get('p');
       const size = parseInt(url.searchParams.get('size') || '0', 10);
-      const name = url.searchParams.get('name') || 'video.mp4';
 
       if (!p)    return textResp('Missing ?p=', 400);
       if (!size) return textResp('Missing ?size=', 400);
@@ -1090,7 +1132,7 @@ export default {
         const password = env.ENCRYPTION_KEY || 'default-secret-key-change-me-987';
         const decrypted = await decryptPayload(p, password);
         targetUrl = decrypted.url;
-      } catch (err) {
+      } catch {
         return textResp('Invalid ?p=', 400);
       }
 
@@ -1098,7 +1140,7 @@ export default {
         return textResp('Host not allowed', 403);
       }
 
-      const m3u8 = buildM3U8(workerBase, p, size, name);
+      const m3u8 = buildM3U8(workerBase, p, size);
       return new Response(m3u8, {
         status: 200,
         headers: {
@@ -1125,7 +1167,7 @@ export default {
         const decrypted = await decryptPayload(p, password);
         targetUrl = decrypted.url;
         cookiesStr = decrypted.cookies;
-      } catch (err) {
+      } catch {
         return textResp('Invalid or expired encrypted payload', 400);
       }
 
@@ -1242,7 +1284,7 @@ async function refreshStreamingUrl(targetUrl, cookies) {
         const decrypted = await decryptPayload(p, password);
         targetUrl = decrypted.url;
         cookiesStr = decrypted.cookies;
-      } catch (err) {
+      } catch {
         return textResp('Invalid or expired encrypted payload', 400);
       }
 
@@ -1320,27 +1362,67 @@ async function refreshStreamingUrl(targetUrl, cookies) {
 
       // Otherwise, it is a progressive download/stream: redirect the browser directly
       // to the target signed CDN URL for maximum speed, saving massive worker bandwidth.
-      const dl = url.searchParams.get('dl');
-      if (dl === '1') {
-        return new Response(null, {
-          status: 302,
-          headers: {
-            'Location': targetUrl,
-            'Content-Disposition': 'attachment',
-            ...CORS
-          }
-        });
-      }
+      try {
+        const range = request.headers.get('Range');
+        const headers = {
+          'User-Agent': UA,
+          'Referer': 'https://www.terabox.app/',
+          'Accept': '*/*',
+        };
+        if (cookiesStr) headers['Cookie'] = cookiesStr;
+        if (range) headers['Range'] = range;
 
-      return new Response(null, {
-        status: 302,
-        headers: {
-          'Location': targetUrl,
-          ...CORS
+        let upstream = await fetch(targetUrl, { headers, redirect: 'manual' });
+        
+        // Follow redirects manually
+        let redirectCount = 0;
+        while ((upstream.status === 301 || upstream.status === 302 ||
+                upstream.status === 307 || upstream.status === 308) && redirectCount < 5) {
+          const location = upstream.headers.get('location');
+          if (!location) break;
+          upstream = await fetch(location, { headers, redirect: 'manual' });
+          redirectCount++;
         }
-      });
+
+        const responseHeaders = new Headers(CORS);
+        const headersToForward = [
+          'content-type',
+          'content-length',
+          'content-range',
+          'accept-ranges',
+          'cache-control',
+          'etag',
+          'last-modified'
+        ];
+        for (const h of headersToForward) {
+          const val = upstream.headers.get(h);
+          if (val) responseHeaders.set(h, val);
+        }
+
+        const upstreamCd = upstream.headers.get('content-disposition');
+        const dl = url.searchParams.get('dl');
+        if (dl === '1') {
+          try {
+            const name = new URL(targetUrl).searchParams.get('name') || 'video.mp4';
+            responseHeaders.set('Content-Disposition', `attachment; filename="${name}"`);
+          } catch {
+            responseHeaders.set('Content-Disposition', 'attachment');
+          }
+        } else if (upstreamCd) {
+          responseHeaders.set('Content-Disposition', upstreamCd);
+        }
+
+        return new Response(upstream.body, {
+          status: upstream.status,
+          headers: responseHeaders,
+        });
+      } catch (err) {
+        return textResp(`Progressive proxy failed: ${err.message}`, 502);
+      }
     }
 
     return textResp('Not found', 404);
   },
 };
+
+export default handler;

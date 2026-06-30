@@ -23,6 +23,7 @@ const DOMAINS = [
 const SESSION_CACHE_TTL = 60;   // seconds
 const FILELIST_CACHE_TTL = 30;  // seconds
 const BYTES_PER_CHUNK = 4 * 1024 * 1024;
+const MAX_SEQUENTIAL_FALLBACKS = 3;
 
 // ── In-Memory Caches ──────────────────────────────────────────────────────────
 const sessionCache = new Map<string, { expires: number; value: unknown }>();
@@ -558,7 +559,7 @@ interface MappedFile {
 }
 
 // ── Main resolve ──────────────────────────────────────────────────────────────
-export async function resolveFullLocal(shortCode: string, auth: { ndus?: string; ndut_fmt?: string; ndut_fmv?: string; csrf?: string; browserid?: string } = {}, workerBase = '', dir = '', _userAgent = '') {
+export async function resolveFullLocal(shortCode: string, auth: { ndus?: string; ndut_fmt?: string; ndut_fmv?: string; csrf?: string; browserid?: string } = {}, workerBase = '', dir = '') {
   console.log(`[local-resolver] Resolving: ${shortCode}`);
 
   // We MUST use the desktop UA when fetching from TeraBox, otherwise TeraBox treats it as mobile and limits video playback to 30s or blocks dlinks.
@@ -621,13 +622,16 @@ export async function resolveFullLocal(shortCode: string, auth: { ndus?: string;
     return { success: false, error: 'Could not get guest session from any domain.' };
   }
 
-  let files: MappedFile[] = [], shareId = '', uk = '';
-  const MAX_SEQUENTIAL_FALLBACKS = 3;
   const listDomainOrder = [
     bestDomain,
     ...DOMAINS.filter(d => d !== bestDomain).slice(0, MAX_SEQUENTIAL_FALLBACKS),
   ];
 
+  let files: MappedFile[] = [];
+  let shareId = '';
+  let uk = '';
+
+  const listErrors: string[] = [];
   for (const d of listDomainOrder) {
     try {
       const api = await callShorturlinfo(d, shortCode, bestJsToken, bestCookies, dir, fetchUa);
@@ -638,14 +642,14 @@ export async function resolveFullLocal(shortCode: string, auth: { ndus?: string;
       console.log(`[local-resolver] Got ${files.length} file(s) from ${d}, uk=${uk}, shareid=${shareId}`);
       break;
     } catch (err: unknown) {
-      if (err instanceof Error) {
-        console.log(`[local-resolver] callShorturlinfo failed on ${d}: ${err.message}`);
-      }
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      listErrors.push(`${d}: ${msg}`);
+      console.log(`[local-resolver] callShorturlinfo failed on ${d}: ${msg}`);
     }
   }
 
   if (!files.length) {
-    return { success: false, error: 'Could not fetch file list from any domain.' };
+    return { success: false, error: `Could not fetch file list from any domain. Details: ${listErrors.join(' | ')}` };
   }
 
   for (const f of files) {

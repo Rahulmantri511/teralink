@@ -73,18 +73,16 @@ export function extractShortCode(input: string): string | null {
 async function callWorker(
   shortCode: string,
   workerUrl: string,
-  auth: { ndus?: string; ndut_fmt?: string; ndut_fmv?: string; csrf?: string; browserid?: string } = {},
   dir?: string,
 ): Promise<any> {
+  // NOTE: We no longer pass ndus/cookies to the worker.
+  // The worker picks an account from its own rotation pool (TERABOX_NDUS_1..4
+  // env vars set in Cloudflare dashboard). This keeps credentials secret
+  // and enables true per-request rotation without exposing account tokens.
   const params = new URLSearchParams({ code: shortCode });
-  if (auth.ndus)      params.set('ndus', auth.ndus);
-  if (auth.ndut_fmt)  params.set('ndut_fmt', auth.ndut_fmt);
-  if (auth.ndut_fmv)  params.set('ndut_fmv', auth.ndut_fmv);
-  if (auth.csrf)      params.set('csrf', auth.csrf);
-  if (auth.browserid) params.set('browserid', auth.browserid);
-  if (dir)            params.set('dir', dir);
+  if (dir) params.set('dir', dir);
   const url = `${workerUrl.replace(/\/$/, '')}/resolve?${params}`;
-  console.log(`[worker] Calling: ${url.replace(/(ndus|ndut_fmt|ndut_fmv|csrf|browserid)=[^&]+/g, '$1=***')}`);
+  console.log(`[worker] Calling: ${url}`);
 
   const resp = await fetch(url, {
     signal: AbortSignal.timeout(30_000),
@@ -103,9 +101,9 @@ async function callWorker(
 
 export async function resolveTerabox(
   shareUrl: string,
-  envCookie?: string,
+  _envCookie?: string,
   dir?: string,
-  userAgent?: string,
+  _userAgent?: string,
 ): Promise<TeraboxResult> {
   try {
     const code = extractShortCode(shareUrl);
@@ -126,23 +124,37 @@ export async function resolveTerabox(
     let workerData: any;
     try {
       if (process.env.NODE_ENV === 'production' || process.env.USE_WORKER === 'true') {
-        // Production/Worker Mode: Delegate to Cloudflare Worker (protects server IP & uses free edge streaming bandwidth)
-        workerData = await callWorker(code, workerUrl, {
-          ndus:      process.env.TERABOX_NDUS,
-          ndut_fmt:  process.env.TERABOX_NDUT_FMT,
-          ndut_fmv:  process.env.TERABOX_NDUT_FMV,
-          csrf:      process.env.TERABOX_CSRF,
-          browserid: process.env.TERABOX_BROWSERID,
-        }, dir);
+        // Production/Worker Mode: Worker handles account rotation internally.
+        // Credentials (ndus) are stored as Cloudflare env vars — never sent over the wire.
+        workerData = await callWorker(code, workerUrl, dir);
       } else {
-        // Local Dev Mode: Resolve locally
+        // Local Dev Mode: Resolve locally using env credentials
+        // Get rotated account from pool
+        const pool = [
+          process.env.TERABOX_NDUS_1 || '',
+          process.env.TERABOX_NDUS_2 || '',
+          process.env.TERABOX_NDUS_3 || '',
+          process.env.TERABOX_NDUS_4 || '',
+          process.env.TERABOX_NDUS   || '',
+        ].filter(Boolean);
+
+        let activeNdus = process.env.TERABOX_NDUS || '';
+        if (pool.length > 0) {
+          let hash = 0;
+          for (let i = 0; i < code.length; i++) {
+            hash = (hash * 31 + code.charCodeAt(i)) >>> 0;
+          }
+          activeNdus = pool[hash % pool.length];
+          console.log(`[terabox] Dev mode: picked account #${(hash % pool.length) + 1} of ${pool.length}`);
+        }
+
         workerData = await resolveFullLocal(code, {
-          ndus:      process.env.TERABOX_NDUS,
+          ndus:      activeNdus,
           ndut_fmt:  process.env.TERABOX_NDUT_FMT,
           ndut_fmv:  process.env.TERABOX_NDUT_FMV,
           csrf:      process.env.TERABOX_CSRF,
           browserid: process.env.TERABOX_BROWSERID,
-        }, workerUrl, dir, userAgent);
+        }, workerUrl, dir);
       }
     } catch (err: any) {
       console.error('[resolver] Error:', err?.message);
