@@ -715,7 +715,7 @@ export async function resolveFullLocal(shortCode: string, auth: { ndus?: string;
 
         if (fileSize > 0) {
           const encryptedPayload = await encryptPayload(cdnUrl, bestCookies);
-          f.fastStreamUrl = `/api/stream?p=${encryptedPayload}&format=mp4`;
+          f.fastStreamUrl = `/stream?p=${encryptedPayload}&format=mp4`;
           dlinkStatus = 'ok';
           console.log(`[local-resolver] fast_stream URL built for ${f.filename}, size=${fileSize}, segments=${Math.ceil(fileSize / BYTES_PER_CHUNK)}`);
         } else {
@@ -786,7 +786,7 @@ export async function resolveFullLocal(shortCode: string, auth: { ndus?: string;
     if (f.qualities) {
       for (const qKey of Object.keys(f.qualities)) {
         const encrypted = await encryptPayload(f.qualities[qKey], bestCookies);
-        fastStreamUrlMap[`${qKey}p`] = `/api/stream?p=${encrypted}`;
+        fastStreamUrlMap[`${qKey}p`] = `/stream?p=${encrypted}`;
       }
     }
 
@@ -795,7 +795,7 @@ export async function resolveFullLocal(shortCode: string, auth: { ndus?: string;
       fastStreamUrlMap['Original (Full)'] = f.fastStreamUrl;
     } else if (f.dlinkResolved) {
       const encrypted = await encryptPayload(f.dlinkResolved, bestCookies);
-      fastStreamUrlMap['Original (Full)'] = `/api/stream?p=${encrypted}&format=mp4`;
+      fastStreamUrlMap['Original (Full)'] = `/stream?p=${encrypted}&format=mp4`;
     }
 
     if (fastStreamUrlMap['Original (Full)']) {
@@ -809,7 +809,7 @@ export async function resolveFullLocal(shortCode: string, auth: { ndus?: string;
 
     if (f.dlinkResolved) {
       const encrypted = await encryptPayload(f.dlinkResolved, bestCookies);
-      fastStreamUrlMap['Direct Download'] = `/api/stream?p=${encrypted}&dl=1`;
+      fastStreamUrlMap['Direct Download'] = `/stream?p=${encrypted}&dl=1`;
     }
 
     let primaryQuality = '360p';
@@ -823,10 +823,10 @@ export async function resolveFullLocal(shortCode: string, auth: { ndus?: string;
       finalStreamUrl = f.fastStreamUrl;
     } else if (f.dlinkResolved) {
       const encrypted = await encryptPayload(f.dlinkResolved, bestCookies);
-      finalStreamUrl = `/api/stream?p=${encrypted}&format=mp4`;
+      finalStreamUrl = `/stream?p=${encrypted}&format=mp4`;
     } else if (f.hlsUrl) {
       const encrypted = await encryptPayload(f.hlsUrl, bestCookies);
-      finalStreamUrl = `/api/stream?p=${encrypted}`;
+      finalStreamUrl = `/stream?p=${encrypted}`;
     }
 
     filesList.push({
@@ -839,7 +839,7 @@ export async function resolveFullLocal(shortCode: string, auth: { ndus?: string;
       is_dir: f.isDir ? "1" : "0",
       duration: "00:00:00",
       quality: primaryQuality,
-      normal_dlink: f.dlinkResolved ? `/api/stream?p=${await encryptPayload(f.dlinkResolved, bestCookies)}&dl=1` : "",
+      normal_dlink: f.dlinkResolved ? `/stream?p=${await encryptPayload(f.dlinkResolved, bestCookies)}&dl=1` : "",
       stream_url: finalStreamUrl,
       fast_stream_url: fastStreamUrlMap,
       subtitle_url: "",

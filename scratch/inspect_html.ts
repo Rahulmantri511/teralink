@@ -1,4 +1,4 @@
-import fs from 'fs';
+import { ProxyAgent } from 'undici';
 
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36';
 
@@ -23,6 +23,7 @@ async function run() {
     console.log('file_list or list inside templateData:', data.file_list || data.list || data.fileList ? 'Found' : 'Not found');
     
     // Log the entire templateData to file to inspect
+    const fs = require('fs');
     fs.writeFileSync('scratch/templateData.json', JSON.stringify(data, null, 2));
     console.log('Saved templateData.json to scratch/templateData.json');
   } else {
