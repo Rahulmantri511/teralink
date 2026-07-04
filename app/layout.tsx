@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import Script from "next/script";
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://teralink.in"),
@@ -8,7 +9,7 @@ export const metadata: Metadata = {
     template: "%s | TeraLink",
   },
   description:
-    "TeraLink is the best free online TeraBox Video Player and Downloader. Stream TeraBox videos in HD or get direct download links — no app, no login, no ads. Works on Android, iOS & PC. Supports terabox.com, terasharefile.com, 1024tera.com.",
+    "TeraLink is the best free online TeraBox Video Player and Downloader. Stream TeraBox videos in HD or get direct download links — no app, no login. Works on Android, iOS & PC. Supports terabox.com, terasharefile.com, 1024tera.com.",
   applicationName: "TeraLink",
   keywords: [
     "TeraBox Player",
@@ -38,7 +39,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: "TeraLink — Free TeraBox Video Player & Downloader Online",
     description:
-      "Stream TeraBox videos online in HD or download at high speed — no app, no login, 0 ads. Works on Android, iOS, and PC.",
+      "Stream TeraBox videos online in HD or download at high speed — no app, no login. Works on Android, iOS, and PC.",
     type: "website",
     siteName: "TeraLink",
     locale: "en_US",
@@ -48,7 +49,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "TeraLink — Free TeraBox Video Player & Downloader Online",
     description:
-      "Stream TeraBox videos online in HD or download at high speed — no app, no login, 0 ads.",
+      "Stream TeraBox videos online in HD or download at high speed — no app, no login.",
   },
   robots: {
     index: true,
@@ -85,7 +86,15 @@ export default function RootLayout({
           rel="stylesheet"
         />
       </head>
-      <body>{children}</body>
+      <body>
+        {children}
+        <Script
+          async
+          src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-4863036831697942"
+          crossOrigin="anonymous"
+          strategy="afterInteractive"
+        />
+      </body>
     </html>
   );
 }

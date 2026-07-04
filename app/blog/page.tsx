@@ -217,7 +217,7 @@ export default function BlogIndex() {
         <div className="footer-grid">
           <div className="footer-brand">
             <div className="footer-logo-text">⚡ TeraLink</div>
-            <p>Free TeraBox video player and direct link downloader. No ads, no registration, no limits.</p>
+            <p>Free TeraBox video player and direct link downloader. No registration, no limits.</p>
           </div>
           <div>
             <div className="footer-col-title">Legal</div>

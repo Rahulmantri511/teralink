@@ -1179,7 +1179,7 @@ export default function Home() {
       "price": "0.00",
       "priceCurrency": "USD"
     },
-    "description": "TeraLink is a free online TeraBox Video Player and Downloader. Stream TeraBox videos in HD or generate direct download links — no app, no login, no ads.",
+    "description": "TeraLink is a free online TeraBox Video Player and Downloader. Stream TeraBox videos in HD or generate direct download links — no app, no login.",
     "softwareVersion": "1.0.0",
     "featureList": [
       "TeraBox Video Streaming",
@@ -1187,7 +1187,7 @@ export default function Home() {
       "HD Quality Playback",
       "No Registration Required",
       "Works on Android and iOS",
-      "Ad-Free Experience"
+      "Secure & Private Experience"
     ]
   };
 
@@ -2409,13 +2409,13 @@ export default function Home() {
             </div>
             <h1 className="header-logo">⚡ TeraLink</h1>
             <p className="header-sub">
-              Stream or download any TeraBox shared link — HD quality, no ads, no app install.
+              Stream or download any TeraBox shared link — HD quality, no app install.
             </p>
             <div className="header-pills">
               <span className="pill">🎬 Video Streaming</span>
               <span className="pill">⬇️ Direct Download</span>
               <span className="pill">📱 Mobile Ready</span>
-              <span className="pill">🔒 Ad-Free</span>
+              <span className="pill">🔒 Secure &amp; Private</span>
             </div>
           </header>
 
@@ -2586,8 +2586,8 @@ export default function Home() {
                 <div className="stat-label">Free Forever</div>
               </div>
               <div className="stat-item">
-                <div className="stat-number">0</div>
-                <div className="stat-label">Ads or Popups</div>
+                <div className="stat-number">Instant</div>
+                <div className="stat-label">No Login Needed</div>
               </div>
               <div className="stat-item">
                 <div className="stat-number">HD</div>
@@ -2600,14 +2600,14 @@ export default function Home() {
               <div className="seo-card-icon">⚡</div>
               <h2 className="seo-title">Free Online TeraBox Video Player &amp; Downloader</h2>
               <p className="seo-text">
-                Tired of installing heavy applications just to watch a shared video? <strong style={{color:'#c7d2fe'}}>TeraLink</strong> is a completely free, browser-based <strong style={{color:'#c7d2fe'}}>TeraBox Video Player</strong> and <strong style={{color:'#c7d2fe'}}>TeraBox Link Downloader</strong>. With our clean, ad-free interface, stream or download shared TeraBox links directly in high-definition (HD) from any device — no accounts, no downloads, no redirects.
+                Tired of installing heavy applications just to watch a shared video? <strong style={{color:'#c7d2fe'}}>TeraLink</strong> is a completely free, browser-based <strong style={{color:'#c7d2fe'}}>TeraBox Video Player</strong> and <strong style={{color:'#c7d2fe'}}>TeraBox Link Downloader</strong>. With our clean interface, stream or download shared TeraBox links directly in high-definition (HD) from any device — no accounts, no downloads, no redirects.
               </p>
               <div className="seo-grid">
                 {[
                   { icon: "🚀", title: "Fast Link Opener", desc: "Bypass TeraBox app restrictions instantly. Processes your link and opens it in seconds." },
                   { icon: "🎥", title: "HD Online Streaming", desc: "Play TeraBox videos with multiple quality options (360p, 480p, 720p, 1080p) and adaptive bitrate." },
                   { icon: "⬇️", title: "Direct Download", desc: "Generate direct download links for offline viewing. High-speed CDN — no registration needed." },
-                  { icon: "🔒", title: "Secure &amp; Ad-Free", desc: "No popups, no hidden tracking. We keep your session private and your data safe." },
+                  { icon: "🔒", title: "Secure &amp; Private", desc: "No harmful redirects, no hidden tracking. We keep your session private and your data safe." },
                 ].map((item) => (
                   <div key={item.title} className="seo-feature-item">
                     <span className="seo-feature-icon">{item.icon}</span>
@@ -2710,7 +2710,7 @@ export default function Home() {
           <div className="footer-grid">
             <div className="footer-brand">
               <div className="footer-logo-text">⚡ TeraLink</div>
-              <p>Free TeraBox video player and direct link downloader. No ads, no registration, no limits.</p>
+              <p>Free TeraBox video player and direct link downloader. No registration, no limits.</p>
             </div>
             <div>
               <div className="footer-col-title">Legal &amp; Guides</div>
