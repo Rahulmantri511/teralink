@@ -15,18 +15,14 @@ const SIGN_KEY = 'iuuPc64E4Fhn0rTXEzrnbLph0o5qyEEa';
 const CLIENTTYPE = '0';
 const CHANNEL = 'dubox';
 
-// Cloudflare PoP colos to prefer for outbound TeraBox requests.
-// BOM = Mumbai (India), SIN = Singapore, HKG = Hong Kong — all close to
-// TeraBox's Asia-Pacific origin servers. Staying in this region avoids
-// the geo-anomaly flags that US/EU Cloudflare IPs trigger.
-// cf.colo is a request HINT — Cloudflare uses it when Smart Placement is on.
-const CF_PREFERRED_COLOS = ['BOM', 'SIN', 'HKG', 'MAA', 'DEL'];
-function cfColoHint() {
-  // Pick a colo deterministically from the current second so each Worker
-  // invocation stays consistent within its lifetime but rotates slowly.
-  const idx = Math.floor(Date.now() / 60000) % CF_PREFERRED_COLOS.length;
-  return CF_PREFERRED_COLOS[idx];
-}
+// Cloudflare PoP colo for outbound TeraBox requests.
+// IMPORTANT: Must be a SINGLE fixed colo — never rotate between colos for
+// the same ndus. TeraBox bans sessions it sees coming from multiple countries
+// (treats it as account sharing). BOM = Mumbai, India — closest to TeraBox's
+// Asia-Pacific servers and matches our user base geography.
+// Works together with [placement] mode="smart" in wrangler.toml.
+const CF_COLO = 'BOM'; // Mumbai, India — fixed, never rotate
+function cfColoHint() { return CF_COLO; }
 
 const DOMAINS = [
   'dm.1024tera.com',
