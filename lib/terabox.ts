@@ -128,8 +128,9 @@ export async function resolveTerabox(
         // Credentials (ndus) are stored as Cloudflare env vars — never sent over the wire.
         workerData = await callWorker(code, workerUrl, dir);
       } else {
-        // Local Dev Mode: Resolve locally using env credentials
-        // Get rotated account from pool
+        // Local Dev Mode: Resolve locally using env credentials.
+        // Build the full ordered pool so resolveFullLocal can auto-fallback if
+        // one account is banned (errno 400141) — same logic as the worker.
         const pool = [
           process.env.TERABOX_NDUS_1 || '',
           process.env.TERABOX_NDUS_2 || '',
@@ -138,18 +139,29 @@ export async function resolveTerabox(
           process.env.TERABOX_NDUS   || '',
         ].filter(Boolean);
 
-        let activeNdus = process.env.TERABOX_NDUS || '';
-        if (pool.length > 0) {
+        // Deterministic primary pick — same shortCode always hits the same account
+        let primaryIdx = 0;
+        if (pool.length > 1) {
           let hash = 0;
           for (let i = 0; i < code.length; i++) {
             hash = (hash * 31 + code.charCodeAt(i)) >>> 0;
           }
-          activeNdus = pool[hash % pool.length];
-          console.log(`[terabox] Dev mode: picked account #${(hash % pool.length) + 1} of ${pool.length}`);
+          primaryIdx = hash % pool.length;
+        }
+
+        // Ordered pool: primary first, then remaining accounts as fallbacks
+        const orderedPool: string[] = [];
+        for (let i = 0; i < pool.length; i++) {
+          orderedPool.push(pool[(primaryIdx + i) % pool.length]);
+        }
+
+        if (orderedPool.length > 0) {
+          console.log(`[terabox] Dev mode: picked account #${primaryIdx + 1} of ${pool.length} (with ${pool.length - 1} fallback(s))`);
         }
 
         workerData = await resolveFullLocal(code, {
-          ndus:      activeNdus,
+          // Pass the ordered pool so resolver can auto-retry on ban
+          _accountPool: orderedPool,
           ndut_fmt:  process.env.TERABOX_NDUT_FMT,
           ndut_fmv:  process.env.TERABOX_NDUT_FMV,
           csrf:      process.env.TERABOX_CSRF,

@@ -559,15 +559,53 @@ interface MappedFile {
 }
 
 // ── Main resolve ──────────────────────────────────────────────────────────────
-export async function resolveFullLocal(shortCode: string, auth: { ndus?: string; ndut_fmt?: string; ndut_fmv?: string; csrf?: string; browserid?: string } = {}, workerBase = '', dir = '') {
+export async function resolveFullLocal(shortCode: string, auth: { ndus?: string; _accountPool?: string[]; ndut_fmt?: string; ndut_fmv?: string; csrf?: string; browserid?: string } = {}, workerBase = '', dir = '') {
   console.log(`[local-resolver] Resolving: ${shortCode}`);
 
   // We MUST use the desktop UA when fetching from TeraBox, otherwise TeraBox treats it as mobile and limits video playback to 30s or blocks dlinks.
   const fetchUa = UA;
 
+  // Build the ndus pool in priority order.
+  // auth._accountPool: ordered list passed by terabox.ts (preferred)
+  // auth.ndus: single explicit override
+  const ndusPool: string[] = auth.ndus
+    ? [auth.ndus]
+    : (auth._accountPool || []);
+
+  // ── Auto-fallback: try each ndus until one gives a valid session ───────
+  // If an account returns errno 400141 (banned), we silently skip to the next.
   let premCookiesStr = '';
-  if (auth && auth.ndus) {
-    premCookiesStr = `ndus=${auth.ndus}`;
+  let workingNdus = '';
+
+  for (const ndus of ndusPool) {
+    const parts = [`ndus=${ndus}`];
+    if (auth.ndut_fmt)  parts.push(`ndut_fmt=${auth.ndut_fmt}`);
+    if (auth.ndut_fmv)  parts.push(`ndut_fmv=${auth.ndut_fmv}`);
+    if (auth.csrf)      parts.push(`csrfToken=${auth.csrf}`);
+    if (auth.browserid) parts.push(`browserid=${auth.browserid}`);
+    const candidateCookies = parts.join('; ');
+
+    try {
+      const probe = await getSession('dm.1024tera.com', shortCode, candidateCookies, fetchUa);
+      if (probe && probe.browserid) {
+        premCookiesStr = candidateCookies;
+        workingNdus = ndus;
+        console.log(`[local-resolver] Using ndus: ...${ndus.slice(-8)} (valid session)`);
+        break;
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes('400141')) {
+        console.log(`[local-resolver] ndus ...${ndus.slice(-8)} is restricted (400141), trying next account`);
+        continue;
+      }
+      console.log(`[local-resolver] ndus ...${ndus.slice(-8)} probe failed: ${msg}`);
+    }
+  }
+
+  if (ndusPool.length > 0 && !workingNdus) {
+    console.log('[local-resolver] All ndus accounts failed probe, falling back to guest session');
+    premCookiesStr = '';
   }
 
   let session: { cookies: string; jsToken: string; bdstoken: string; browserid: string; domain: string } | null = null;
@@ -587,7 +625,8 @@ export async function resolveFullLocal(shortCode: string, auth: { ndus?: string;
     bestCookies   = merged;
     bestJsToken   = session.jsToken || bestJsToken;
     bestBdstoken  = session.bdstoken || bestBdstoken;
-    bestBrowserid = auth.browserid || session.browserid || bestBrowserid;
+    // Prefer browserid from the session response — it is tied to the domain request
+    bestBrowserid = session.browserid || auth.browserid || bestBrowserid;
     bestDomain    = session.domain;
     console.log(`[local-resolver] Best session from ${bestDomain} (fast path), bdstoken: ${bestBdstoken ? 'found' : 'none'}, jsToken: ${bestJsToken ? 'found' : 'none'}`);
   } else {
@@ -606,7 +645,7 @@ export async function resolveFullLocal(shortCode: string, auth: { ndus?: string;
         bestCookies   = merged;
         bestJsToken   = jsToken || bestJsToken;
         bestBdstoken  = bdstoken || bestBdstoken;
-        bestBrowserid = auth.browserid || browserid || bestBrowserid;
+        bestBrowserid = browserid || auth.browserid || bestBrowserid;
         bestDomain    = domain;
         maxCookiesLen = merged.length;
         console.log(`[local-resolver] Best session from ${domain} (fallback path), bdstoken: ${bdstoken ? 'found' : 'none'}, jsToken: ${jsToken ? 'found' : 'none'}`);
@@ -618,7 +657,7 @@ export async function resolveFullLocal(shortCode: string, auth: { ndus?: string;
     bestCookies = mergeCookieStrings(bestCookies, `browserid=${bestBrowserid}`);
   }
 
-  if (!bestBrowserid && !auth.ndus) {
+  if (!bestBrowserid && !workingNdus) {
     return { success: false, error: 'Could not get guest session from any domain.' };
   }
 

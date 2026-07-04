@@ -15,6 +15,19 @@ const SIGN_KEY = 'iuuPc64E4Fhn0rTXEzrnbLph0o5qyEEa';
 const CLIENTTYPE = '0';
 const CHANNEL = 'dubox';
 
+// Cloudflare PoP colos to prefer for outbound TeraBox requests.
+// BOM = Mumbai (India), SIN = Singapore, HKG = Hong Kong — all close to
+// TeraBox's Asia-Pacific origin servers. Staying in this region avoids
+// the geo-anomaly flags that US/EU Cloudflare IPs trigger.
+// cf.colo is a request HINT — Cloudflare uses it when Smart Placement is on.
+const CF_PREFERRED_COLOS = ['BOM', 'SIN', 'HKG', 'MAA', 'DEL'];
+function cfColoHint() {
+  // Pick a colo deterministically from the current second so each Worker
+  // invocation stays consistent within its lifetime but rotates slowly.
+  const idx = Math.floor(Date.now() / 60000) % CF_PREFERRED_COLOS.length;
+  return CF_PREFERRED_COLOS[idx];
+}
+
 const DOMAINS = [
   'dm.1024tera.com',
   'www.1024tera.com',
@@ -42,32 +55,43 @@ const DOMAINS = [
 //   TERABOX_NDUS_4 = YQab_XNpeHui4Rli7AW0lJU0bP9Txu2cquzEPDYJ
 
 /**
- * Pick a ndus cookie from the rotation pool based on a hash of the shortCode.
- * Same shortCode → same account (cache-friendly).
- * Different shortCodes → spread evenly across all 4 accounts.
+ * Returns the full pool of ndus tokens in priority order for a given shortCode.
+ * The primary pick is deterministic (same link → same account, cache-warm).
+ * Remaining accounts are appended as fallbacks for automatic retry when the
+ * primary account is banned/restricted (errno 400141).
  */
-function pickAccount(env, shortCode) {
-  // Collect available accounts (skip empty/missing)
+function getAccountPool(env, shortCode) {
   const pool = [
     env.TERABOX_NDUS_1 || '',
     env.TERABOX_NDUS_2 || '',
     env.TERABOX_NDUS_3 || '',
     env.TERABOX_NDUS_4 || '',
-    // Legacy single-account fallback
     env.TERABOX_NDUS   || '',
   ].filter(Boolean);
 
-  if (pool.length === 0) return '';
-  if (pool.length === 1) return pool[0];
+  if (pool.length === 0) return [];
+  if (pool.length === 1) return pool;
 
-  // Simple deterministic hash: sum of char codes mod pool length
+  // Deterministic primary pick by shortCode hash
   let hash = 0;
   for (let i = 0; i < shortCode.length; i++) {
-    hash = (hash * 31 + shortCode.charCodeAt(i)) >>> 0; // keep unsigned 32-bit
+    hash = (hash * 31 + shortCode.charCodeAt(i)) >>> 0;
   }
-  const idx = hash % pool.length;
-  console.log(`[worker] Account rotation: picked account #${idx + 1} of ${pool.length} for shortCode ${shortCode.slice(0,8)}...`);
-  return pool[idx];
+  const primaryIdx = hash % pool.length;
+  console.log(`[worker] Account rotation: primary account #${primaryIdx + 1} of ${pool.length} for shortCode ${shortCode.slice(0,8)}...`);
+
+  // Return pool starting from primary, wrapping around so all accounts are tried
+  const ordered = [];
+  for (let i = 0; i < pool.length; i++) {
+    ordered.push(pool[(primaryIdx + i) % pool.length]);
+  }
+  return ordered;
+}
+
+// Legacy single-pick helper for callers that only need one ndus
+function pickAccount(env, shortCode) {
+  const pool = getAccountPool(env, shortCode);
+  return pool[0] || '';
 }
 
 const ALLOWED_HOSTS = [
@@ -283,16 +307,26 @@ async function getSession(domain, shortCode, premiumCookies = '') {
   const headers = {
     'User-Agent': UA,
     'Accept': 'text/html,application/xhtml+xml,*/*;q=0.8',
-    'Accept-Language': 'en-US,en;q=0.9',
+    // Send Indian locale so TeraBox geo-detects India (matches our user base)
+    'Accept-Language': 'en-IN,en;q=0.9,hi;q=0.8',
   };
   if (premiumCookies) {
     headers['Cookie'] = premiumCookies;
   }
 
+  // Route outbound TeraBox requests through an Asian Cloudflare PoP
+  // (Mumbai/Singapore) so TeraBox sees a consistent Asian IP rather than
+  // random US/EU edges. Works together with Smart Placement in wrangler.toml.
+  const cfOpts = { colo: cfColoHint() };
   const resp = await fetch(`https://${domain}/sharing/link?surl=${shortCode}`, {
     headers,
     signal: AbortSignal.timeout(12000),
-  });
+    cf: cfOpts,
+  }).catch(() => fetch(`https://${domain}/sharing/link?surl=${shortCode}`, {
+    headers,
+    signal: AbortSignal.timeout(12000),
+  }));
+
   const setCookies = resp.headers.getSetCookie?.() ?? [];
   const cookies = parseCookies(setCookies);
   const html = await resp.text();
@@ -352,6 +386,7 @@ async function _callShorturlinfoInner(domain, shortCode, jsToken, cookies, dir =
         'Cookie': cookies,
       },
       signal: AbortSignal.timeout(12000),
+      cf: { colo: cfColoHint() },
     });
     const listJson = await listResp.json();
     if (listJson.errno) throw new Error(describeTeraBoxErrno(listJson.errno, domain));
@@ -382,6 +417,7 @@ async function _callShorturlinfoInner(domain, shortCode, jsToken, cookies, dir =
         'Cookie': cookies,
       },
       signal: AbortSignal.timeout(12000),
+      cf: { colo: cfColoHint() },
     });
     const json = await resp.json();
     if (!json.errno && json.list?.length) return json;
@@ -404,6 +440,7 @@ async function _callShorturlinfoInner(domain, shortCode, jsToken, cookies, dir =
       'Cookie': cookies,
     },
     signal: AbortSignal.timeout(12000),
+    cf: { colo: cfColoHint() },
   });
   const listJson = await listResp.json();
   if (listJson.errno) throw new Error(`errno ${listJson.errno} on ${domain}`);
@@ -443,6 +480,7 @@ async function getDlink(domain, fsId, uk, shareId, shortCode, jsToken, bdstoken,
       'Origin': `https://${domain}`,
     },
     signal: AbortSignal.timeout(12000),
+    cf: { colo: cfColoHint() },
   });
 
   // TeraBox returns errno != 0 when the session is dead (400210 = verify_v2
@@ -479,6 +517,7 @@ async function getDlink(domain, fsId, uk, shareId, shortCode, jsToken, bdstoken,
         'Cookie': cookies,
       },
       signal: AbortSignal.timeout(12000),
+      cf: { colo: cfColoHint() },
     });
     if (fmResp.status === 401 || fmResp.status === 403) {
       throw new Error(`filemetas returned ${fmResp.status} (TeraBox session likely expired)`);
@@ -683,20 +722,56 @@ const MAX_SEQUENTIAL_FALLBACKS = 3;
 async function resolveFull(shortCode, auth = {}, workerBase = '', dir = '', encryptionKey = 'default-secret-key-change-me-987') {
   console.log(`[worker] Resolving: ${shortCode}`);
 
-  // Construct premium cookies string from provided auth or rotation pool
+  // Build the ndus pool in priority order for this shortCode.
+  // auth._accountPool is injected by the /resolve handler and contains all
+  // valid accounts ordered by primary pick + fallbacks.
+  // auth.ndus is a single override (e.g., passed via query param — admin use).
+  const ndusPool = auth.ndus
+    ? [auth.ndus]                    // explicit override: use only that ndus
+    : (auth._accountPool || []);     // rotation pool ordered by hash
+
+  // ── Try each ndus in the pool until one works ─────────────────────────────
+  // We break out of this loop as soon as we get a working session.
+  // If a specific ndus returns errno 400141 (banned/needs verify), we log it
+  // and automatically fall through to the next account in the pool.
   let premCookiesStr = '';
-  if (auth && auth.ndus) {
-    // Per-request auth takes priority (e.g. passed explicitly via query param)
-    const premParts = [];
-    premParts.push(`ndus=${auth.ndus}`);
-    if (auth.ndut_fmt) premParts.push(`ndut_fmt=${auth.ndut_fmt}`);
-    if (auth.ndut_fmv) premParts.push(`ndut_fmv=${auth.ndut_fmv}`);
-    if (auth.csrf)     premParts.push(`csrfToken=${auth.csrf}`);
-    if (auth.browserid) premParts.push(`browserid=${auth.browserid}`);
-    premCookiesStr = premParts.join('; ');
-  } else if (auth._ndusFromPool) {
-    // Injected by the /resolve handler from the rotation pool
-    premCookiesStr = `ndus=${auth._ndusFromPool}`;
+  let workingNdus = '';
+
+  if (ndusPool.length > 0) {
+    for (const ndus of ndusPool) {
+      // Build a minimal cookie string: ndus + optional extras from auth
+      const parts = [`ndus=${ndus}`];
+      if (auth.ndut_fmt)  parts.push(`ndut_fmt=${auth.ndut_fmt}`);
+      if (auth.ndut_fmv)  parts.push(`ndut_fmv=${auth.ndut_fmv}`);
+      if (auth.csrf)      parts.push(`csrfToken=${auth.csrf}`);
+      if (auth.browserid) parts.push(`browserid=${auth.browserid}`);
+      const candidateCookies = parts.join('; ');
+
+      // Quick probe: try to get a session with this ndus
+      try {
+        const probe = await getSession(DOMAINS[0], shortCode, candidateCookies);
+        if (probe && probe.browserid) {
+          premCookiesStr = candidateCookies;
+          workingNdus = ndus;
+          console.log(`[worker] Using ndus: ...${ndus.slice(-8)} (browserid acquired)`);
+          break;
+        }
+      } catch (e) {
+        // errno 400141 = banned; try next account
+        if (e?.message?.includes('400141')) {
+          console.log(`[worker] ndus ...${ndus.slice(-8)} is restricted (400141), trying next account`);
+          continue;
+        }
+        // Other errors (network, etc.) — still try next account
+        console.log(`[worker] ndus ...${ndus.slice(-8)} probe failed: ${e?.message}`);
+      }
+    }
+
+    if (!workingNdus) {
+      // All accounts from the pool failed; fall through to guest session
+      console.log('[worker] All ndus accounts failed probe, falling back to guest session');
+      premCookiesStr = '';
+    }
   }
 
   // Step 1: Get guest/premium session — probe top domains in parallel.
@@ -719,7 +794,10 @@ async function resolveFull(shortCode, auth = {}, workerBase = '', dir = '', encr
       bestCookies   = merged;
       bestJsToken   = jsToken || bestJsToken;
       bestBdstoken  = bdstoken || bestBdstoken;
-      bestBrowserid = auth.browserid || browserid || bestBrowserid;
+      // IMPORTANT: always use browserid from the session response (not just from
+      // auth), because TeraBox ties the session validation to the browserid that
+      // was issued for that specific domain request.
+      bestBrowserid = browserid || auth.browserid || bestBrowserid;
       bestDomain    = domain;
       maxCookiesLen = merged.length;
       console.log(`[worker] Best session from ${domain}, bdstoken: ${bdstoken ? 'found' : 'none'}, jsToken: ${jsToken ? 'found' : 'none'}`);
@@ -730,7 +808,7 @@ async function resolveFull(shortCode, auth = {}, workerBase = '', dir = '', encr
     bestCookies = mergeCookieStrings(bestCookies, `browserid=${bestBrowserid}`);
   }
 
-  if (!bestBrowserid && !auth.ndus) {
+  if (!bestBrowserid && !workingNdus) {
     return { success: false, error: 'Could not get guest session from any domain.' };
   }
 
@@ -1098,24 +1176,25 @@ const handler = {
         return jsonResp({ error: 'Invalid or malformed ?code=' }, 400);
       }
       try {
-        // Pick a rotated account for this shortCode (deterministic by shortCode hash)
-        const rotatedNdus = pickAccount(env, code);
+        const explicitNdus = url.searchParams.get('ndus') || '';
 
         const auth = {
           // Explicit query params override rotation (for admin/debug use)
-          ndus:           url.searchParams.get('ndus') || '',
+          ndus:           explicitNdus,
           ndut_fmt:       url.searchParams.get('ndut_fmt') || '',
           ndut_fmv:       url.searchParams.get('ndut_fmv') || '',
           csrf:           url.searchParams.get('csrf') || '',
           browserid:      url.searchParams.get('browserid') || '',
-          // Rotation pool fallback (used when no explicit ndus is passed)
-          _ndusFromPool:  url.searchParams.get('ndus') ? '' : rotatedNdus,
+          // Full ordered account pool for automatic fallback rotation.
+          // If an explicit ndus is passed, skip the pool (admin override).
+          _accountPool:   explicitNdus ? [] : getAccountPool(env, code),
         };
         const encryptionKey = env.ENCRYPTION_KEY || 'default-secret-key-change-me-987';
         const result = await resolveFull(code, auth, workerBase, dir, encryptionKey);
         return jsonResp(result, result.status === 'success' ? 200 : 500);
-      } catch {
-        return jsonResp({ error: 'Worker error' }, 500);
+      } catch (err) {
+        console.error('[worker] /resolve error:', err?.message);
+        return jsonResp({ error: err?.message || 'Worker error' }, 500);
       }
     }
 

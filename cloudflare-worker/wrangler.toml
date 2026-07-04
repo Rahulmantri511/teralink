@@ -1,0 +1,21 @@
+name = "teralink-worker"
+main = "worker.js"
+compatibility_date = "2024-11-01"
+
+# Smart Placement: Cloudflare runs this Worker close to TeraBox's origin
+# servers (Singapore / Hong Kong), not close to the end user.
+# This means outbound requests to TeraBox always come from Asian PoPs
+# (BOM = Mumbai, SIN = Singapore, HKG = Hong Kong) instead of US/EU edges.
+[placement]
+mode = "smart"
+
+[vars]
+# Non-secret defaults (override in Cloudflare dashboard for secrets)
+ENCRYPTION_KEY = ""
+
+# ── Secrets (set via `wrangler secret put` or Cloudflare dashboard) ─────────
+# TERABOX_NDUS_1 = <account 1 ndus>
+# TERABOX_NDUS_2 = <account 2 ndus>
+# TERABOX_NDUS_3 = <account 3 ndus>
+# TERABOX_NDUS_4 = <account 4 ndus>
+# ENCRYPTION_KEY = <your secret key>
