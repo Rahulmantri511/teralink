@@ -716,7 +716,13 @@ const MAX_SEQUENTIAL_FALLBACKS = 3;
 // ── Main resolve ──────────────────────────────────────────────────────────────
 
 async function resolveFull(shortCode, auth = {}, workerBase = '', dir = '', encryptionKey = 'default-secret-key-change-me-987') {
-  console.log(`[worker] Resolving: ${shortCode}`);
+  const trace = [];
+  const logTrace = (msg) => {
+    console.log(msg);
+    trace.push(msg);
+  };
+
+  logTrace(`[worker] Resolving: ${shortCode}`);
 
   // Build the ndus pool in priority order for this shortCode.
   // auth.ndus = single explicit override (admin/debug use via query param)
@@ -724,6 +730,8 @@ async function resolveFull(shortCode, auth = {}, workerBase = '', dir = '', encr
   const ndusPool = auth.ndus
     ? [auth.ndus]
     : (auth._accountPool || []);
+
+  logTrace(`[worker] Pool size: ${ndusPool.length}, accounts: ${ndusPool.map(n => '...' + n.slice(-6)).join(', ')}`);
 
   // Pick the PRIMARY ndus (first in pool = deterministic hash pick).
   // We do NOT probe each account upfront — TeraBox doesn't re-issue
@@ -740,13 +748,16 @@ async function resolveFull(shortCode, auth = {}, workerBase = '', dir = '', encr
     if (auth.csrf)      parts.push(`csrfToken=${auth.csrf}`);
     if (auth.browserid) parts.push(`browserid=${auth.browserid}`);
     premCookiesStr = parts.join('; ');
-    console.log(`[worker] Using account ...${primaryNdus.slice(-8)} (pool size: ${ndusPool.length})`);
+    logTrace(`[worker] Using primary account ...${primaryNdus.slice(-8)}`);
+  } else {
+    logTrace(`[worker] No accounts in pool, using guest session`);
   }
 
   // Step 1: Get session — probe top domains in parallel.
   // We merge Set-Cookie cookies from TeraBox into premCookiesStr so that
   // browserid + jsToken issued by TeraBox are carried through all API calls.
   const topDomains = DOMAINS.slice(0, MAX_PARALLEL_DOMAINS);
+  logTrace(`[worker] Step 1: Getting session from domains: ${topDomains.join(', ')}`);
   const sessionResults = await Promise.allSettled(
     topDomains.map(d => getSession(d, shortCode, premCookiesStr))
   );
@@ -756,7 +767,10 @@ async function resolveFull(shortCode, auth = {}, workerBase = '', dir = '', encr
   let maxCookiesLen = -1;
 
   for (const r of sessionResults) {
-    if (r.status !== 'fulfilled') continue;
+    if (r.status !== 'fulfilled') {
+      logTrace(`[worker] Session result rejected: ${r.reason?.message || r.reason}`);
+      continue;
+    }
     const { cookies, jsToken, bdstoken, browserid, domain } = r.value;
     const merged = mergeCookieStrings(premCookiesStr, cookies);
 
@@ -767,7 +781,7 @@ async function resolveFull(shortCode, auth = {}, workerBase = '', dir = '', encr
       bestBrowserid = browserid || auth.browserid || bestBrowserid;
       bestDomain    = domain;
       maxCookiesLen = merged.length;
-      console.log(`[worker] Best session from ${domain}, bdstoken: ${bdstoken ? 'found' : 'none'}, jsToken: ${jsToken ? 'found' : 'none'}`);
+      logTrace(`[worker] Best session from ${domain}, bdstoken: ${bdstoken ? 'found' : 'none'}, jsToken: ${jsToken ? 'found' : 'none'}, browserid: ${browserid ? 'found' : 'none'}`);
     }
   }
 
@@ -776,10 +790,8 @@ async function resolveFull(shortCode, auth = {}, workerBase = '', dir = '', encr
   }
 
   if (!bestBrowserid && !primaryNdus) {
-    return { success: false, error: 'Could not get guest session from any domain.' };
+    return { success: false, error: 'Could not get guest session from any domain.', trace };
   }
-
-
 
   // Step 2: Get file list — try bestDomain first, then sequential fallbacks.
   // If errno 400141 (account banned), automatically retry with the next account
@@ -794,6 +806,7 @@ async function resolveFull(shortCode, auth = {}, workerBase = '', dir = '', encr
   let accountIdx = 0; // tracks which account we are on (for 400141 fallback)
 
   async function tryGetFiles(cookies, jsToken) {
+    logTrace(`[worker] Fetching file list from domains...`);
     for (const d of listDomainOrder) {
       try {
         const api = await callShorturlinfo(d, shortCode, jsToken, cookies, dir);
@@ -801,12 +814,12 @@ async function resolveFull(shortCode, auth = {}, workerBase = '', dir = '', encr
         shareId = String(api.shareid ?? '');
         uk      = String(api.uk ?? '');
         bestDomain = d;
-        console.log(`[worker] Got ${files.length} file(s) from ${d}, uk=${uk}, shareid=${shareId}`);
+        logTrace(`[worker] Got ${files.length} file(s) from ${d}, uk=${uk}, shareid=${shareId}`);
         return true;
       } catch (err) {
         const msg = err?.message || 'Unknown error';
         listErrors.push(`${d}: ${msg}`);
-        console.log(`[worker] callShorturlinfo failed on ${d}: ${msg}`);
+        logTrace(`[worker] callShorturlinfo failed on ${d}: ${msg}`);
         // 400141 = this account is banned — break domain loop, try next account
         if (msg.includes('400141')) break;
       }
@@ -819,9 +832,10 @@ async function resolveFull(shortCode, auth = {}, workerBase = '', dir = '', encr
 
   // If 400141 detected, cycle through remaining pool accounts
   if (!gotFiles && ndusPool.length > 1) {
+    logTrace(`[worker] Primary account failed, trying fallback accounts...`);
     for (accountIdx = 1; accountIdx < ndusPool.length; accountIdx++) {
       const fallbackNdus = ndusPool[accountIdx];
-      console.log(`[worker] Primary account banned (400141), trying fallback account #${accountIdx + 1}: ...${fallbackNdus.slice(-8)}`);
+      logTrace(`[worker] Trying fallback account #${accountIdx + 1}: ...${fallbackNdus.slice(-8)}`);
 
       const parts = [`ndus=${fallbackNdus}`];
       if (auth.ndut_fmt)  parts.push(`ndut_fmt=${auth.ndut_fmt}`);
@@ -829,7 +843,10 @@ async function resolveFull(shortCode, auth = {}, workerBase = '', dir = '', encr
       const fallbackCookies = parts.join('; ');
 
       // Get fresh session for this fallback account
-      const fbSession = await getSession(bestDomain, shortCode, fallbackCookies).catch(() => null);
+      const fbSession = await getSession(bestDomain, shortCode, fallbackCookies).catch((e) => {
+        logTrace(`[worker] getSession failed for fallback account: ${e?.message}`);
+        return null;
+      });
       if (!fbSession) continue;
 
       const fbCookies = mergeCookieStrings(fallbackCookies, fbSession.cookies);
@@ -837,7 +854,9 @@ async function resolveFull(shortCode, auth = {}, workerBase = '', dir = '', encr
       const fbCookiesFinal = fbBrowserid
         ? mergeCookieStrings(fbCookies, `browserid=${fbBrowserid}`)
         : fbCookies;
-      const fbJsToken = fbSession.jsToken || bestJsToken;
+      const fbJsToken = fbSession.jsToken || ""; // Use fresh jsToken or empty, don't leak banned account's jsToken
+
+      logTrace(`[worker] Fallback Session browserid: ${fbBrowserid ? 'found' : 'none'}, jsToken: ${fbSession.jsToken ? 'found' : 'none'}`);
 
       listErrors.length = 0; // reset errors for new attempt
       gotFiles = await tryGetFiles(fbCookiesFinal, fbJsToken);
@@ -845,17 +864,20 @@ async function resolveFull(shortCode, auth = {}, workerBase = '', dir = '', encr
         bestCookies   = fbCookiesFinal;
         bestJsToken   = fbJsToken;
         bestBrowserid = fbBrowserid || bestBrowserid; // ← FIX: update browserid for HMAC signing
+        bestBdstoken  = fbSession.bdstoken || bestBdstoken; // ← FIX: update bdstoken for download request
         if (bestBrowserid) {
           bestCookies = mergeCookieStrings(bestCookies, `browserid=${bestBrowserid}`);
         }
+        logTrace(`[worker] Fallback account #${accountIdx + 1} succeeded!`);
         break;
       }
     }
   }
 
   if (!files.length) {
-    return { success: false, error: `Could not fetch file list from any domain. Details: ${listErrors.join(' | ')}` };
+    return { success: false, error: `Could not fetch file list from any domain. Details: ${listErrors.join(' | ')}`, trace };
   }
+
 
   // Step 3: For each file, build the dlink-based fast_stream M3U8 (PRIMARY).
   // HLS streaming URL is fetched only as a fallback if dlink resolution fails.
@@ -1070,6 +1092,7 @@ async function resolveFull(shortCode, auth = {}, workerBase = '', dir = '', encr
       total_files: totalFiles,
       total_folders: totalFolders,
       list: filesList,
+      trace,
     };
   }
 
@@ -1077,7 +1100,8 @@ async function resolveFull(shortCode, auth = {}, workerBase = '', dir = '', encr
     status: "success",
     total_files: totalFiles,
     total_folders: totalFolders,
-    list: filesList
+    list: filesList,
+    trace,
   };
 }
 
