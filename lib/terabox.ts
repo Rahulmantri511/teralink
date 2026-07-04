@@ -132,11 +132,11 @@ export async function resolveTerabox(
         // Build the full ordered pool so resolveFullLocal can auto-fallback if
         // one account is banned (errno 400141) — same logic as the worker.
         const pool = [
-          process.env.TERABOX_NDUS_1 || '',
-          process.env.TERABOX_NDUS_2 || '',
-          process.env.TERABOX_NDUS_3 || '',
-          process.env.TERABOX_NDUS_4 || '',
-          process.env.TERABOX_NDUS   || '',
+          (process.env.TERABOX_NDUS_1 || '').trim(),
+          (process.env.TERABOX_NDUS_2 || '').trim(),
+          (process.env.TERABOX_NDUS_3 || '').trim(),
+          (process.env.TERABOX_NDUS_4 || '').trim(),
+          (process.env.TERABOX_NDUS   || '').trim(),
         ].filter(Boolean);
 
         // Deterministic primary pick — same shortCode always hits the same account

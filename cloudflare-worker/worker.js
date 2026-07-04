@@ -58,11 +58,11 @@ const DOMAINS = [
  */
 function getAccountPool(env, shortCode) {
   const pool = [
-    env.TERABOX_NDUS_1 || '',
-    env.TERABOX_NDUS_2 || '',
-    env.TERABOX_NDUS_3 || '',
-    env.TERABOX_NDUS_4 || '',
-    env.TERABOX_NDUS   || '',
+    (env.TERABOX_NDUS_1 || '').trim(),
+    (env.TERABOX_NDUS_2 || '').trim(),
+    (env.TERABOX_NDUS_3 || '').trim(),
+    (env.TERABOX_NDUS_4 || '').trim(),
+    (env.TERABOX_NDUS   || '').trim(),
   ].filter(Boolean);
 
   if (pool.length === 0) return [];
