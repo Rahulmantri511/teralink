@@ -560,49 +560,62 @@ interface MappedFile {
 
 // ── Main resolve ──────────────────────────────────────────────────────────────
 export async function resolveFullLocal(shortCode: string, auth: { ndus?: string; _accountPool?: string[]; ndut_fmt?: string; ndut_fmv?: string; csrf?: string; browserid?: string } = {}, workerBase = '', dir = '') {
-  const trace: string[] = [];
-  const logTrace = (msg: string) => {
-    console.log(msg);
-    trace.push(msg);
-  };
-
-  logTrace(`[local-resolver] Resolving: ${shortCode}`);
+  console.log(`[local-resolver] Resolving: ${shortCode}`);
 
   // We MUST use the desktop UA when fetching from TeraBox, otherwise TeraBox treats it as mobile and limits video playback to 30s or blocks dlinks.
   const fetchUa = UA;
 
-  // Pick the PRIMARY ndus directly — no probing.
-  // Probing getSession with an ndus cookie NEVER returns browserid (TeraBox
-  // doesn't re-issue browserid to existing sessions), so every probe looks
-  // "failed" and the code falls back to guest → 30-sec preview.
-  const ndusPool: string[] = auth.ndus ? [auth.ndus] : (auth._accountPool || []);
-  const primaryNdus = ndusPool[0] || '';
+  // Build the ndus pool in priority order.
+  // auth._accountPool: ordered list passed by terabox.ts (preferred)
+  // auth.ndus: single explicit override
+  const ndusPool: string[] = auth.ndus
+    ? [auth.ndus]
+    : (auth._accountPool || []);
 
-  logTrace(`[local-resolver] Pool size: ${ndusPool.length}, accounts: ${ndusPool.map(n => '...' + n.slice(-6)).join(', ')}`);
-
+  // ── Auto-fallback: try each ndus until one gives a valid session ───────
+  // If an account returns errno 400141 (banned), we silently skip to the next.
   let premCookiesStr = '';
-  if (primaryNdus) {
-    const parts = [`ndus=${primaryNdus}`];
+  let workingNdus = '';
+
+  for (const ndus of ndusPool) {
+    const parts = [`ndus=${ndus}`];
     if (auth.ndut_fmt)  parts.push(`ndut_fmt=${auth.ndut_fmt}`);
     if (auth.ndut_fmv)  parts.push(`ndut_fmv=${auth.ndut_fmv}`);
     if (auth.csrf)      parts.push(`csrfToken=${auth.csrf}`);
     if (auth.browserid) parts.push(`browserid=${auth.browserid}`);
-    premCookiesStr = parts.join('; ');
-    logTrace(`[local-resolver] Using primary account ...${primaryNdus.slice(-8)}`);
-  } else {
-    logTrace(`[local-resolver] No accounts in pool, using guest session`);
+    const candidateCookies = parts.join('; ');
+
+    try {
+      const probe = await getSession('dm.1024tera.com', shortCode, candidateCookies, fetchUa);
+      if (probe && probe.browserid) {
+        premCookiesStr = candidateCookies;
+        workingNdus = ndus;
+        console.log(`[local-resolver] Using ndus: ...${ndus.slice(-8)} (valid session)`);
+        break;
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes('400141')) {
+        console.log(`[local-resolver] ndus ...${ndus.slice(-8)} is restricted (400141), trying next account`);
+        continue;
+      }
+      console.log(`[local-resolver] ndus ...${ndus.slice(-8)} probe failed: ${msg}`);
+    }
+  }
+
+  if (ndusPool.length > 0 && !workingNdus) {
+    console.log('[local-resolver] All ndus accounts failed probe, falling back to guest session');
+    premCookiesStr = '';
   }
 
   let session: { cookies: string; jsToken: string; bdstoken: string; browserid: string; domain: string } | null = null;
   try {
-    logTrace(`[local-resolver] Step 1: Getting session from dm.1024tera.com`);
     session = await getSession('dm.1024tera.com', shortCode, premCookiesStr, fetchUa);
   } catch (err: unknown) {
     if (err instanceof Error) {
-      logTrace(`[local-resolver] Primary domain session lookup failed: ${err.message}. Trying fallbacks...`);
+      console.log(`[local-resolver] Primary domain session lookup failed: ${err.message}. Trying fallbacks...`);
     }
   }
-
 
   let bestCookies = premCookiesStr || '', bestJsToken = '', bestBdstoken = '',
       bestBrowserid = auth.browserid || '', bestDomain = 'dm.1024tera.com';
@@ -612,23 +625,22 @@ export async function resolveFullLocal(shortCode: string, auth: { ndus?: string;
     bestCookies   = merged;
     bestJsToken   = session.jsToken || bestJsToken;
     bestBdstoken  = session.bdstoken || bestBdstoken;
+    // Prefer browserid from the session response — it is tied to the domain request
     bestBrowserid = session.browserid || auth.browserid || bestBrowserid;
     bestDomain    = session.domain;
-    logTrace(`[local-resolver] Best session from ${bestDomain} (fast path), bdstoken: ${bestBdstoken ? 'found' : 'none'}, jsToken: ${bestJsToken ? 'found' : 'none'}, browserid: ${bestBrowserid ? 'found' : 'none'}`);
+    console.log(`[local-resolver] Best session from ${bestDomain} (fast path), bdstoken: ${bestBdstoken ? 'found' : 'none'}, jsToken: ${bestJsToken ? 'found' : 'none'}`);
   } else {
     const fallbackDomains = DOMAINS.filter(d => d !== 'dm.1024tera.com').slice(0, 3);
-    logTrace(`[local-resolver] Domain fallbacks: ${fallbackDomains.join(', ')}`);
     const sessionResults = await Promise.allSettled(
       fallbackDomains.map(d => getSession(d, shortCode, premCookiesStr, fetchUa))
     );
+
     let maxCookiesLen = -1;
     for (const r of sessionResults) {
-      if (r.status !== 'fulfilled') {
-        logTrace(`[local-resolver] Session result rejected: ${r.reason?.message || r.reason}`);
-        continue;
-      }
+      if (r.status !== 'fulfilled') continue;
       const { cookies, jsToken, bdstoken, browserid, domain } = r.value;
       const merged = mergeCookieStrings(cookies, premCookiesStr);
+
       if (merged.length > maxCookiesLen) {
         bestCookies   = merged;
         bestJsToken   = jsToken || bestJsToken;
@@ -636,7 +648,7 @@ export async function resolveFullLocal(shortCode: string, auth: { ndus?: string;
         bestBrowserid = browserid || auth.browserid || bestBrowserid;
         bestDomain    = domain;
         maxCookiesLen = merged.length;
-        logTrace(`[local-resolver] Best session from ${domain} (fallback path), bdstoken: ${bdstoken ? 'found' : 'none'}, jsToken: ${jsToken ? 'found' : 'none'}, browserid: ${browserid ? 'found' : 'none'}`);
+        console.log(`[local-resolver] Best session from ${domain} (fallback path), bdstoken: ${bdstoken ? 'found' : 'none'}, jsToken: ${jsToken ? 'found' : 'none'}`);
       }
     }
   }
@@ -645,8 +657,8 @@ export async function resolveFullLocal(shortCode: string, auth: { ndus?: string;
     bestCookies = mergeCookieStrings(bestCookies, `browserid=${bestBrowserid}`);
   }
 
-  if (!bestBrowserid && !primaryNdus) {
-    return { success: false, error: 'Could not get guest session from any domain.', trace };
+  if (!bestBrowserid && !workingNdus) {
+    return { success: false, error: 'Could not get guest session from any domain.' };
   }
 
   const listDomainOrder = [
@@ -659,77 +671,25 @@ export async function resolveFullLocal(shortCode: string, auth: { ndus?: string;
   let uk = '';
 
   const listErrors: string[] = [];
-
-  // tryGetFiles — breaks on 400141 so caller can try next account
-  async function tryGetFiles(cookies: string, jsToken: string): Promise<boolean> {
-    logTrace(`[local-resolver] Fetching file list from domains...`);
-    for (const d of listDomainOrder) {
-      try {
-        const api = await callShorturlinfo(d, shortCode, jsToken, cookies, dir, fetchUa);
-        files   = (api.list ?? []).map(mapFile);
-        shareId = String(api.shareid ?? '');
-        uk      = String(api.uk ?? '');
-        bestDomain = d;
-        logTrace(`[local-resolver] Got ${files.length} file(s) from ${d}, uk=${uk}, shareid=${shareId}`);
-        return true;
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : 'Unknown error';
-        listErrors.push(`${d}: ${msg}`);
-        logTrace(`[local-resolver] callShorturlinfo failed on ${d}: ${msg}`);
-        if (msg.includes('400141')) break; // this account is banned, stop trying domains
-      }
-    }
-    return false;
-  }
-
-  // Try primary account first
-  let gotFiles = await tryGetFiles(bestCookies, bestJsToken);
-
-  // 400141 fallback — try remaining accounts in the pool
-  if (!gotFiles && ndusPool.length > 1) {
-    logTrace(`[local-resolver] Primary account failed, trying fallback accounts...`);
-    for (let idx = 1; idx < ndusPool.length; idx++) {
-      const fallbackNdus = ndusPool[idx];
-      logTrace(`[local-resolver] Trying fallback #${idx + 1}: ...${fallbackNdus.slice(-8)}`);
-
-      const parts = [`ndus=${fallbackNdus}`];
-      if (auth.ndut_fmt) parts.push(`ndut_fmt=${auth.ndut_fmt}`);
-      if (auth.csrf)     parts.push(`csrfToken=${auth.csrf}`);
-      const fbCookiesRaw = parts.join('; ');
-
-      const fbSession = await getSession(bestDomain, shortCode, fbCookiesRaw, fetchUa).catch((e) => {
-        logTrace(`[local-resolver] getSession failed for fallback account: ${e?.message}`);
-        return null;
-      });
-      if (!fbSession) continue;
-
-      const fbCookies = mergeCookieStrings(fbCookiesRaw, fbSession.cookies);
-      const fbBrowserid = fbSession.browserid || '';
-      const fbCookiesFinal = fbBrowserid
-        ? mergeCookieStrings(fbCookies, `browserid=${fbBrowserid}`)
-        : fbCookies;
-      const fbJsToken = fbSession.jsToken || ""; // Use fresh jsToken or empty, don't leak banned account's jsToken
-
-      logTrace(`[local-resolver] Fallback Session browserid: ${fbBrowserid ? 'found' : 'none'}, jsToken: ${fbSession.jsToken ? 'found' : 'none'}`);
-
-      listErrors.length = 0;
-      gotFiles = await tryGetFiles(fbCookiesFinal, fbJsToken);
-      if (gotFiles) {
-        bestCookies   = fbCookiesFinal;
-        bestJsToken   = fbJsToken;
-        bestBdstoken  = fbSession.bdstoken || bestBdstoken;
-        bestBrowserid = fbBrowserid || bestBrowserid; // update for HMAC signing
-        if (bestBrowserid) bestCookies = mergeCookieStrings(bestCookies, `browserid=${bestBrowserid}`);
-        logTrace(`[local-resolver] Fallback account #${idx + 1} succeeded!`);
-        break;
-      }
+  for (const d of listDomainOrder) {
+    try {
+      const api = await callShorturlinfo(d, shortCode, bestJsToken, bestCookies, dir, fetchUa);
+      files   = (api.list ?? []).map(mapFile);
+      shareId = String(api.shareid ?? '');
+      uk      = String(api.uk ?? '');
+      bestDomain = d;
+      console.log(`[local-resolver] Got ${files.length} file(s) from ${d}, uk=${uk}, shareid=${shareId}`);
+      break;
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      listErrors.push(`${d}: ${msg}`);
+      console.log(`[local-resolver] callShorturlinfo failed on ${d}: ${msg}`);
     }
   }
 
   if (!files.length) {
-    return { success: false, error: `Could not fetch file list from any domain. Details: ${listErrors.join(' | ')}`, trace };
+    return { success: false, error: `Could not fetch file list from any domain. Details: ${listErrors.join(' | ')}` };
   }
-
 
   for (const f of files) {
     if (f.isDir) continue;
@@ -813,7 +773,7 @@ export async function resolveFullLocal(shortCode: string, auth: { ndus?: string;
     }
     f.debugInfo!.dlinkStatus = dlinkStatus;
 
-    const skipHls = dlinkStatus === 'dead';
+    const skipHls = dlinkStatus === 'dead' || dlinkErrored;
     if (!skipHls && shareId && uk) {
       const fallbackQuality = 'M3U8_AUTO_480';
       const streamDomainOrder = [
@@ -947,7 +907,6 @@ export async function resolveFullLocal(shortCode: string, auth: { ndus?: string;
       total_files: totalFiles,
       total_folders: totalFolders,
       list: filesList,
-      trace,
     };
   }
 
@@ -955,7 +914,6 @@ export async function resolveFullLocal(shortCode: string, auth: { ndus?: string;
     status: "success",
     total_files: totalFiles,
     total_folders: totalFolders,
-    list: filesList,
-    trace,
+    list: filesList
   };
 }

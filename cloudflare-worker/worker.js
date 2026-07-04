@@ -58,11 +58,11 @@ const DOMAINS = [
  */
 function getAccountPool(env, shortCode) {
   const pool = [
-    (env.TERABOX_NDUS_1 || '').trim(),
-    (env.TERABOX_NDUS_2 || '').trim(),
-    (env.TERABOX_NDUS_3 || '').trim(),
-    (env.TERABOX_NDUS_4 || '').trim(),
-    (env.TERABOX_NDUS   || '').trim(),
+    env.TERABOX_NDUS_1 || '',
+    env.TERABOX_NDUS_2 || '',
+    env.TERABOX_NDUS_3 || '',
+    env.TERABOX_NDUS_4 || '',
+    env.TERABOX_NDUS   || '',
   ].filter(Boolean);
 
   if (pool.length === 0) return [];
@@ -716,48 +716,63 @@ const MAX_SEQUENTIAL_FALLBACKS = 3;
 // ── Main resolve ──────────────────────────────────────────────────────────────
 
 async function resolveFull(shortCode, auth = {}, workerBase = '', dir = '', encryptionKey = 'default-secret-key-change-me-987') {
-  const trace = [];
-  const logTrace = (msg) => {
-    console.log(msg);
-    trace.push(msg);
-  };
-
-  logTrace(`[worker] Resolving: ${shortCode}`);
+  console.log(`[worker] Resolving: ${shortCode}`);
 
   // Build the ndus pool in priority order for this shortCode.
-  // auth.ndus = single explicit override (admin/debug use via query param)
-  // auth._accountPool = ordered list from getAccountPool() for rotation
+  // auth._accountPool is injected by the /resolve handler and contains all
+  // valid accounts ordered by primary pick + fallbacks.
+  // auth.ndus is a single override (e.g., passed via query param — admin use).
   const ndusPool = auth.ndus
-    ? [auth.ndus]
-    : (auth._accountPool || []);
+    ? [auth.ndus]                    // explicit override: use only that ndus
+    : (auth._accountPool || []);     // rotation pool ordered by hash
 
-  logTrace(`[worker] Pool size: ${ndusPool.length}, accounts: ${ndusPool.map(n => '...' + n.slice(-6)).join(', ')}`);
-
-  // Pick the PRIMARY ndus (first in pool = deterministic hash pick).
-  // We do NOT probe each account upfront — TeraBox doesn't re-issue
-  // browserid to existing sessions, so probing always returns empty browserid
-  // and every account appears to fail. Instead we just use the primary account
-  // and fall back to the next in the pool only when the file-list call returns
-  // errno 400141 (confirmed banned).
-  const primaryNdus = ndusPool[0] || '';
+  // ── Try each ndus in the pool until one works ─────────────────────────────
+  // We break out of this loop as soon as we get a working session.
+  // If a specific ndus returns errno 400141 (banned/needs verify), we log it
+  // and automatically fall through to the next account in the pool.
   let premCookiesStr = '';
-  if (primaryNdus) {
-    const parts = [`ndus=${primaryNdus}`];
-    if (auth.ndut_fmt)  parts.push(`ndut_fmt=${auth.ndut_fmt}`);
-    if (auth.ndut_fmv)  parts.push(`ndut_fmv=${auth.ndut_fmv}`);
-    if (auth.csrf)      parts.push(`csrfToken=${auth.csrf}`);
-    if (auth.browserid) parts.push(`browserid=${auth.browserid}`);
-    premCookiesStr = parts.join('; ');
-    logTrace(`[worker] Using primary account ...${primaryNdus.slice(-8)}`);
-  } else {
-    logTrace(`[worker] No accounts in pool, using guest session`);
+  let workingNdus = '';
+
+  if (ndusPool.length > 0) {
+    for (const ndus of ndusPool) {
+      // Build a minimal cookie string: ndus + optional extras from auth
+      const parts = [`ndus=${ndus}`];
+      if (auth.ndut_fmt)  parts.push(`ndut_fmt=${auth.ndut_fmt}`);
+      if (auth.ndut_fmv)  parts.push(`ndut_fmv=${auth.ndut_fmv}`);
+      if (auth.csrf)      parts.push(`csrfToken=${auth.csrf}`);
+      if (auth.browserid) parts.push(`browserid=${auth.browserid}`);
+      const candidateCookies = parts.join('; ');
+
+      // Quick probe: try to get a session with this ndus
+      try {
+        const probe = await getSession(DOMAINS[0], shortCode, candidateCookies);
+        if (probe && probe.browserid) {
+          premCookiesStr = candidateCookies;
+          workingNdus = ndus;
+          console.log(`[worker] Using ndus: ...${ndus.slice(-8)} (browserid acquired)`);
+          break;
+        }
+      } catch (e) {
+        // errno 400141 = banned; try next account
+        if (e?.message?.includes('400141')) {
+          console.log(`[worker] ndus ...${ndus.slice(-8)} is restricted (400141), trying next account`);
+          continue;
+        }
+        // Other errors (network, etc.) — still try next account
+        console.log(`[worker] ndus ...${ndus.slice(-8)} probe failed: ${e?.message}`);
+      }
+    }
+
+    if (!workingNdus) {
+      // All accounts from the pool failed; fall through to guest session
+      console.log('[worker] All ndus accounts failed probe, falling back to guest session');
+      premCookiesStr = '';
+    }
   }
 
-  // Step 1: Get session — probe top domains in parallel.
-  // We merge Set-Cookie cookies from TeraBox into premCookiesStr so that
-  // browserid + jsToken issued by TeraBox are carried through all API calls.
+  // Step 1: Get guest/premium session — probe top domains in parallel.
+  // We pick the session with the most cookies (= most auth state).
   const topDomains = DOMAINS.slice(0, MAX_PARALLEL_DOMAINS);
-  logTrace(`[worker] Step 1: Getting session from domains: ${topDomains.join(', ')}`);
   const sessionResults = await Promise.allSettled(
     topDomains.map(d => getSession(d, shortCode, premCookiesStr))
   );
@@ -767,10 +782,7 @@ async function resolveFull(shortCode, auth = {}, workerBase = '', dir = '', encr
   let maxCookiesLen = -1;
 
   for (const r of sessionResults) {
-    if (r.status !== 'fulfilled') {
-      logTrace(`[worker] Session result rejected: ${r.reason?.message || r.reason}`);
-      continue;
-    }
+    if (r.status !== 'fulfilled') continue;
     const { cookies, jsToken, bdstoken, browserid, domain } = r.value;
     const merged = mergeCookieStrings(premCookiesStr, cookies);
 
@@ -778,10 +790,13 @@ async function resolveFull(shortCode, auth = {}, workerBase = '', dir = '', encr
       bestCookies   = merged;
       bestJsToken   = jsToken || bestJsToken;
       bestBdstoken  = bdstoken || bestBdstoken;
+      // IMPORTANT: always use browserid from the session response (not just from
+      // auth), because TeraBox ties the session validation to the browserid that
+      // was issued for that specific domain request.
       bestBrowserid = browserid || auth.browserid || bestBrowserid;
       bestDomain    = domain;
       maxCookiesLen = merged.length;
-      logTrace(`[worker] Best session from ${domain}, bdstoken: ${bdstoken ? 'found' : 'none'}, jsToken: ${jsToken ? 'found' : 'none'}, browserid: ${browserid ? 'found' : 'none'}`);
+      console.log(`[worker] Best session from ${domain}, bdstoken: ${bdstoken ? 'found' : 'none'}, jsToken: ${jsToken ? 'found' : 'none'}`);
     }
   }
 
@@ -789,13 +804,13 @@ async function resolveFull(shortCode, auth = {}, workerBase = '', dir = '', encr
     bestCookies = mergeCookieStrings(bestCookies, `browserid=${bestBrowserid}`);
   }
 
-  if (!bestBrowserid && !primaryNdus) {
-    return { success: false, error: 'Could not get guest session from any domain.', trace };
+  if (!bestBrowserid && !workingNdus) {
+    return { success: false, error: 'Could not get guest session from any domain.' };
   }
 
   // Step 2: Get file list — try bestDomain first, then sequential fallbacks.
-  // If errno 400141 (account banned), automatically retry with the next account
-  // in the pool rather than requiring manual intervention.
+  // Sequential (not Promise.all) prevents blowing the subrequest limit when
+  // bestDomain succeeds — we stop probing once we have a result.
   let files = [], shareId = '', uk = '';
   const listDomainOrder = [
     bestDomain,
@@ -803,81 +818,24 @@ async function resolveFull(shortCode, auth = {}, workerBase = '', dir = '', encr
   ];
 
   const listErrors = [];
-  let accountIdx = 0; // tracks which account we are on (for 400141 fallback)
-
-  async function tryGetFiles(cookies, jsToken) {
-    logTrace(`[worker] Fetching file list from domains...`);
-    for (const d of listDomainOrder) {
-      try {
-        const api = await callShorturlinfo(d, shortCode, jsToken, cookies, dir);
-        files   = (api.list ?? []).map(mapFile);
-        shareId = String(api.shareid ?? '');
-        uk      = String(api.uk ?? '');
-        bestDomain = d;
-        logTrace(`[worker] Got ${files.length} file(s) from ${d}, uk=${uk}, shareid=${shareId}`);
-        return true;
-      } catch (err) {
-        const msg = err?.message || 'Unknown error';
-        listErrors.push(`${d}: ${msg}`);
-        logTrace(`[worker] callShorturlinfo failed on ${d}: ${msg}`);
-        // 400141 = this account is banned — break domain loop, try next account
-        if (msg.includes('400141')) break;
-      }
-    }
-    return false;
-  }
-
-  // First try with primary account
-  let gotFiles = await tryGetFiles(bestCookies, bestJsToken);
-
-  // If 400141 detected, cycle through remaining pool accounts
-  if (!gotFiles && ndusPool.length > 1) {
-    logTrace(`[worker] Primary account failed, trying fallback accounts...`);
-    for (accountIdx = 1; accountIdx < ndusPool.length; accountIdx++) {
-      const fallbackNdus = ndusPool[accountIdx];
-      logTrace(`[worker] Trying fallback account #${accountIdx + 1}: ...${fallbackNdus.slice(-8)}`);
-
-      const parts = [`ndus=${fallbackNdus}`];
-      if (auth.ndut_fmt)  parts.push(`ndut_fmt=${auth.ndut_fmt}`);
-      if (auth.csrf)      parts.push(`csrfToken=${auth.csrf}`);
-      const fallbackCookies = parts.join('; ');
-
-      // Get fresh session for this fallback account
-      const fbSession = await getSession(bestDomain, shortCode, fallbackCookies).catch((e) => {
-        logTrace(`[worker] getSession failed for fallback account: ${e?.message}`);
-        return null;
-      });
-      if (!fbSession) continue;
-
-      const fbCookies = mergeCookieStrings(fallbackCookies, fbSession.cookies);
-      const fbBrowserid = fbSession.browserid || '';
-      const fbCookiesFinal = fbBrowserid
-        ? mergeCookieStrings(fbCookies, `browserid=${fbBrowserid}`)
-        : fbCookies;
-      const fbJsToken = fbSession.jsToken || ""; // Use fresh jsToken or empty, don't leak banned account's jsToken
-
-      logTrace(`[worker] Fallback Session browserid: ${fbBrowserid ? 'found' : 'none'}, jsToken: ${fbSession.jsToken ? 'found' : 'none'}`);
-
-      listErrors.length = 0; // reset errors for new attempt
-      gotFiles = await tryGetFiles(fbCookiesFinal, fbJsToken);
-      if (gotFiles) {
-        bestCookies   = fbCookiesFinal;
-        bestJsToken   = fbJsToken;
-        bestBrowserid = fbBrowserid || bestBrowserid; // ← FIX: update browserid for HMAC signing
-        bestBdstoken  = fbSession.bdstoken || bestBdstoken; // ← FIX: update bdstoken for download request
-        if (bestBrowserid) {
-          bestCookies = mergeCookieStrings(bestCookies, `browserid=${bestBrowserid}`);
-        }
-        logTrace(`[worker] Fallback account #${accountIdx + 1} succeeded!`);
-        break;
-      }
+  for (const d of listDomainOrder) {
+    try {
+      const api = await callShorturlinfo(d, shortCode, bestJsToken, bestCookies, dir);
+      files   = (api.list ?? []).map(mapFile);
+      shareId = String(api.shareid ?? '');
+      uk      = String(api.uk ?? '');
+      bestDomain = d;  // remember which domain worked for downstream steps
+      console.log(`[worker] Got ${files.length} file(s) from ${d}, uk=${uk}, shareid=${shareId}`);
+      break;
+    } catch (err) {
+      listErrors.push(`${d}: ${err?.message || 'Unknown error'}`);
+      console.log(`[worker] callShorturlinfo failed on ${d}: ${err?.message}`);
     }
   }
 
   if (!files.length) {
-    return { success: false, error: `Could not fetch file list from any domain. Details: ${listErrors.join(' | ')}`, trace };
+    return { success: false, error: `Could not fetch file list from any domain. Details: ${listErrors.join(' | ')}` };
   }
-
 
   // Step 3: For each file, build the dlink-based fast_stream M3U8 (PRIMARY).
   // HLS streaming URL is fetched only as a fallback if dlink resolution fails.
@@ -957,12 +915,10 @@ async function resolveFull(shortCode, auth = {}, workerBase = '', dir = '', encr
     }
     f.debugInfo.dlinkStatus = dlinkStatus;
 
-    // 3c: HLS streaming URL fallback.
-    // IMPORTANT: reset dlinkErrored if we switched accounts via fallback — the
-    // new account's session is fresh so HLS should still be attempted even if
-    // the old account's getDlink threw. Without this reset, skipHls stays true
-    // and the user gets "No playable video files" instead of the HLS stream.
-    const skipHls = dlinkStatus === 'dead';
+    // 3c: HLS streaming URL — always attempt to resolve if domain is not dead.
+    // HLS is preferred because streaming CDNs do not enforce the same strict
+    // IP-binding checks as direct download CDNs (which block Edge/datacenter IPs).
+    const skipHls = dlinkStatus === 'dead' || dlinkErrored;
     if (!skipHls && shareId && uk) {
       const fallbackQuality = 'M3U8_AUTO_480';
       const streamDomainOrder = [
@@ -1092,7 +1048,6 @@ async function resolveFull(shortCode, auth = {}, workerBase = '', dir = '', encr
       total_files: totalFiles,
       total_folders: totalFolders,
       list: filesList,
-      trace,
     };
   }
 
@@ -1100,8 +1055,7 @@ async function resolveFull(shortCode, auth = {}, workerBase = '', dir = '', encr
     status: "success",
     total_files: totalFiles,
     total_folders: totalFolders,
-    list: filesList,
-    trace,
+    list: filesList
   };
 }
 
