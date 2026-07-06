@@ -1,6 +1,81 @@
 import { NextRequest } from 'next/server';
+import { rateLimit } from '../../lib/rate-limit';
 
 export async function GET(req: NextRequest) {
+  // User-Agent Bot Detection
+  const userAgent = req.headers.get('user-agent') || '';
+  const userAgentLower = userAgent.toLowerCase();
+  const isBotUA = 
+    !userAgent || 
+    userAgentLower.includes('python') || 
+    userAgentLower.includes('curl') || 
+    userAgentLower.includes('wget') || 
+    userAgentLower.includes('postman') ||
+    userAgentLower.includes('axios') ||
+    userAgentLower.includes('go-http-client');
+    
+  if (isBotUA) {
+    return new Response('Forbidden: bot detected', { status: 403 });
+  }
+
+  // Security Origin / Referer Validation
+  const origin = req.headers.get('origin');
+  const referer = req.headers.get('referer');
+  const host = req.headers.get('host') || '';
+  const customAllowedOrigin = process.env.ALLOWED_ORIGIN || '';
+
+  const isDomainAllowed = (domainHost: string) => {
+    if (domainHost === host) return true;
+    if (domainHost.startsWith('localhost:')) return true;
+    if (domainHost.endsWith('.vercel.app')) return true;
+    if (customAllowedOrigin && domainHost === customAllowedOrigin) return true;
+    return false;
+  };
+
+  if (origin) {
+    try {
+      const originUrl = new URL(origin);
+      if (!isDomainAllowed(originUrl.host)) {
+        return new Response('Forbidden origin', { status: 403 });
+      }
+    } catch {
+      return new Response('Invalid origin header', { status: 400 });
+    }
+  } else if (referer) {
+    try {
+      const refererUrl = new URL(referer);
+      if (!isDomainAllowed(refererUrl.host)) {
+        return new Response('Forbidden referer', { status: 403 });
+      }
+    } catch {
+      return new Response('Invalid referer header', { status: 400 });
+    }
+  } else {
+    // Require Origin or Referer to block simple CLI/script downloads
+    return new Response('Missing origin or referer header', { status: 403 });
+  }
+
+  // Secure IP Resolution (prevents X-Forwarded-For header spoofing bypasses)
+  const ip = req.ip ||
+             req.headers.get('cf-connecting-ip') ||
+             req.headers.get('x-vercel-ip') ||
+             req.headers.get('x-real-ip') ||
+             req.headers.get('x-forwarded-for')?.split(',')[0].trim() ||
+             '127.0.0.1';
+
+  const limitResult = rateLimit(ip + ':dl', { limitMin: 5, limitDay: 50 });
+  if (!limitResult.allowed) {
+    return new Response('Too many downloads. Please wait a minute or try again tomorrow.', {
+      status: 429,
+      headers: {
+        'X-RateLimit-Limit-Minute': '5',
+        'X-RateLimit-Limit-Day': '50',
+        'X-RateLimit-Remaining-Minute': String(limitResult.remainingMin),
+        'X-RateLimit-Remaining-Day': String(limitResult.remainingDay),
+      }
+    });
+  }
+
   const { searchParams } = req.nextUrl;
   const m3u8UrlEncoded = searchParams.get('url');
   const filename = searchParams.get('name') || 'video.mp4';

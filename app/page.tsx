@@ -2865,6 +2865,7 @@ export default function Home() {
                 <li><a href="/blog" className="footer-link">Blog &amp; Tutorials</a></li>
                 <li><a href="/privacy" className="footer-link">Privacy Policy</a></li>
                 <li><a href="/terms" className="footer-link">Terms &amp; Conditions</a></li>
+                <li><a href="/dmca" className="footer-link">DMCA Policy</a></li>
               </ul>
             </div>
             <div>

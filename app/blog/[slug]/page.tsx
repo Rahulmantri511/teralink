@@ -588,6 +588,7 @@ export default async function BlogPostPage({ params }: Props) {
             <ul className="footer-links-list">
               <li><Link href="/privacy" className="footer-link">Privacy Policy</Link></li>
               <li><Link href="/terms" className="footer-link">Terms &amp; Conditions</Link></li>
+              <li><Link href="/dmca" className="footer-link">DMCA Policy</Link></li>
             </ul>
           </div>
           <div>

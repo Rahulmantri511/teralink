@@ -1,5 +1,6 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { resolveTerabox, extractShortCode } from '../../../lib/terabox';
+import { rateLimit } from '../../../lib/rate-limit';
 
 const TERABOX_DOMAINS = [
   'terabox.com',
@@ -55,8 +56,47 @@ function isValidTeraboxUrl(url: string): boolean {
   }
 }
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   try {
+    // User-Agent Bot Detection
+    const userAgent = req.headers.get('user-agent') || '';
+    const userAgentLower = userAgent.toLowerCase();
+    const isBotUA = 
+      !userAgent || 
+      userAgentLower.includes('python') || 
+      userAgentLower.includes('curl') || 
+      userAgentLower.includes('wget') || 
+      userAgentLower.includes('postman') ||
+      userAgentLower.includes('axios') ||
+      userAgentLower.includes('go-http-client');
+      
+    if (isBotUA) {
+      return NextResponse.json({ error: 'Forbidden: bot detected' }, { status: 403 });
+    }
+
+    // Secure IP Resolution (prevents X-Forwarded-For header spoofing bypasses)
+    const ip = req.ip ||
+               req.headers.get('cf-connecting-ip') ||
+               req.headers.get('x-vercel-ip') ||
+               req.headers.get('x-real-ip') ||
+               req.headers.get('x-forwarded-for')?.split(',')[0].trim() ||
+               '127.0.0.1';
+
+    const limitResult = rateLimit(ip, { limitMin: 3, limitDay: 30 });
+    if (!limitResult.allowed) {
+      return NextResponse.json({
+        error: 'Too many requests. Please wait a minute or try again tomorrow.',
+      }, { 
+        status: 429,
+        headers: {
+          'X-RateLimit-Limit-Minute': '3',
+          'X-RateLimit-Limit-Day': '30',
+          'X-RateLimit-Remaining-Minute': String(limitResult.remainingMin),
+          'X-RateLimit-Remaining-Day': String(limitResult.remainingDay),
+        }
+      });
+    }
+
     // Security Origin / Referer Validation
     const origin = req.headers.get('origin');
     const referer = req.headers.get('referer');
