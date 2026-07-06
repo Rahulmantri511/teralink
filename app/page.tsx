@@ -24,6 +24,41 @@ function fileIcon(f: TeraboxFile) {
   return "📄";
 }
 
+function getHlsUrl(file: TeraboxFile) {
+  if (!file) return "";
+  const qualities = file.fast_stream_url || {};
+  const keys = Object.keys(qualities).filter((k: string) => qualities[k]);
+  const sorted = keys.sort((a, b) => {
+    const getRank = (q: string) => {
+      const num = parseInt(q.replace(/\D/g, ""), 10);
+      if (!isNaN(num)) return num;
+      const qLower = q.toLowerCase();
+      if (qLower.includes("original") || qLower.includes("full")) return 9999;
+      if (qLower.includes("preview")) return -50;
+      return 0;
+    };
+    return getRank(b) - getRank(a);
+  });
+  return qualities[sorted[0]] || file.stream_url || "";
+}
+
+function getHlsDownloadUrl(file: TeraboxFile) {
+  if (!file) return "#";
+  const hlsUrl = getHlsUrl(file);
+  let encodedUrl = "";
+  try {
+    if (typeof window !== "undefined") {
+      encodedUrl = window.btoa(hlsUrl);
+    } else {
+      encodedUrl = Buffer.from(hlsUrl).toString("base64");
+    }
+  } catch {
+    encodedUrl = hlsUrl;
+  }
+  return `/api/download-hls?url=${encodeURIComponent(encodedUrl)}&name=${encodeURIComponent(file.name)}`;
+}
+
+
 // ─── custom video player component ────────────────────────────────────────────
 
 interface VideoPlayerProps {
@@ -50,7 +85,16 @@ function VideoPlayer({ activeFile, workerUrl }: VideoPlayerProps) {
     .filter(k => qualities[k])
     .sort((a, b) => getQualityRank(b) - getQualityRank(a));
 
-  const [currentQuality, setCurrentQuality] = useState<string>("default");
+  const [currentQuality, setCurrentQuality] = useState<string>(() => {
+    const qualities = activeFile.fast_stream_url || {};
+    const keys = Object.keys(qualities).filter(k => qualities[k]);
+    // Default to 480p or 360p first for instant startup buffer, fallback to others
+    const preferredStart = ["480p", "360p", "720p", "1080p", "Original (Full)"];
+    for (const key of preferredStart) {
+      if (keys.includes(key)) return key;
+    }
+    return keys[0] || "default";
+  });
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -105,6 +149,7 @@ function VideoPlayer({ activeFile, workerUrl }: VideoPlayerProps) {
     const base = workerUrl.replace(/\/$/, "");
     return `${base}${pathOrUrl}`;
   };
+
 
   const currentStreamUrl = currentQuality === "default" 
     ? (activeFile.stream_url)
@@ -258,20 +303,11 @@ function VideoPlayer({ activeFile, workerUrl }: VideoPlayerProps) {
     const wasPlaying = isPlaying;
 
     const checkIsHls = (urlStr: string) => {
-      if (urlStr.includes(".m3u8") || urlStr.includes("/fast_stream?")) {
+      if (urlStr.includes(".m3u8") || urlStr.includes("/fast_stream?") || urlStr.includes("/share/streaming")) {
         return true;
       }
-      if (urlStr.includes("/stream?")) {
-        try {
-          const u = new URL(urlStr, window.location.origin);
-          if (u.searchParams.get("dl") === "1") return false;
-          if (u.searchParams.get("format") === "mp4") return false;
-          if (u.pathname.endsWith("/stream") || u.pathname.endsWith("/fast_stream")) {
-            return true;
-          }
-        } catch {}
-      }
-      if (urlStr.includes("/stream?url=")) {
+      // If it's a local proxied url, check the decoded target url
+      if (urlStr.includes("/api/stream?url=") || urlStr.includes("/stream?url=")) {
         try {
           const u = new URL(urlStr, window.location.origin);
           const target = u.searchParams.get("url") || "";
@@ -283,7 +319,8 @@ function VideoPlayer({ activeFile, workerUrl }: VideoPlayerProps) {
           }
           return decoded.includes(".m3u8") || 
                  decoded.includes("/share/streaming") || 
-                 decoded.includes("type=M3U8");
+                 decoded.includes("type=M3U8") ||
+                 decoded.includes("/fast_stream");
         } catch {
           return false;
         }
@@ -907,85 +944,10 @@ export default function Home() {
   // carry a setter that's never called.
   const workerUrl = "https://mute-butterfly-061b.rahulmantri2002.workers.dev";
   const [currentDir, setCurrentDir] = useState<string>("");
-  const [dlProgress, setDlProgress] = useState<number>(-1); // -1 = idle, 0-100 = downloading
-  const [dlFileName, setDlFileName] = useState<string>("");
 
   const addLog = (msg: string) => {
     console.log("[TeraLink DEBUG]", msg);
   };
-
-  async function handleDownload(streamUrl: string, filename: string) {
-    if (dlProgress >= 0) return; // already downloading
-    setDlFileName(filename);
-    setDlProgress(0);
-    try {
-      // Fetch the proxied M3U8 playlist
-      const absUrl = streamUrl.startsWith('http') ? streamUrl : window.location.origin + streamUrl;
-      const resp = await fetch(absUrl);
-      if (!resp.ok) throw new Error('Failed to fetch playlist');
-      const text = await resp.text();
-
-      // Parse segment URLs from M3U8
-      const segments = text.split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('#'));
-      if (!segments.length) throw new Error('No segments found');
-
-      const baseName = filename.replace(/\.mp4$/i, '').replace(/\.mkv$/i, '') || 'video';
-      const outName = baseName + '.ts';
-
-      // Try File System Access API (Chrome desktop) for true streaming to disk
-      if ('showSaveFilePicker' in window) {
-        try {
-          const handle = await (window as Window & typeof globalThis & { showSaveFilePicker: (o: object) => Promise<{ createWritable: () => Promise<{ write: (d: ArrayBuffer) => Promise<void>; close: () => Promise<void> }> }> }).showSaveFilePicker({
-            suggestedName: outName,
-            types: [{ description: 'Video file', accept: { 'video/mp2t': ['.ts'] } }],
-          });
-          const writable = await handle.createWritable();
-          for (let i = 0; i < segments.length; i++) {
-            const segResp = await fetch(segments[i]);
-            if (!segResp.ok) continue;
-            const buf = await segResp.arrayBuffer();
-            await writable.write(buf);
-            setDlProgress(Math.round(((i + 1) / segments.length) * 100));
-          }
-          await writable.close();
-          setDlProgress(-1);
-          return;
-        } catch (fsErr: unknown) {
-          if ((fsErr as { name?: string })?.name === 'AbortError') { setDlProgress(-1); return; } // user cancelled
-          // fall through to in-memory approach
-        }
-      }
-
-      // Fallback: collect all segments in memory then trigger download
-      const chunks: Uint8Array[] = [];
-      for (let i = 0; i < segments.length; i++) {
-        const segResp = await fetch(segments[i]);
-        if (!segResp.ok) continue;
-        const buf = await segResp.arrayBuffer();
-        chunks.push(new Uint8Array(buf));
-        setDlProgress(Math.round(((i + 1) / segments.length) * 100));
-      }
-      const total = chunks.reduce((s, c) => s + c.byteLength, 0);
-      const combined = new Uint8Array(total);
-      let offset = 0;
-      for (const c of chunks) { combined.set(c, offset); offset += c.byteLength; }
-      const blob = new Blob([combined], { type: 'video/mp2t' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = outName;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      setTimeout(() => URL.revokeObjectURL(url), 30000);
-    } catch (err: unknown) {
-      console.error('Download failed:', err);
-      alert('Download failed: ' + ((err as { message?: string })?.message || String(err)));
-    } finally {
-      setDlProgress(-1);
-      setDlFileName('');
-    }
-  }
 
  
   async function resolveLink() {
@@ -1139,23 +1101,21 @@ export default function Home() {
               <h3>{activeFile.name}</h3>
               <span className="file-details-size">{activeFile.size_formatted}</span>
             </div>
-            {activeFile.normal_dlink ? (
-              <a href={activeFile.normal_dlink} className="details-dl-btn" download={activeFile.name} target="_blank" rel="noopener noreferrer">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-                {isVideo(activeFile.name) || hasHls ? "Download Video" : isAudio(activeFile.name) ? "Download Audio" : "Download Image"}
-              </a>
-            ) : activeFile.stream_url ? (
-              <button
-                className={`details-dl-btn${dlProgress >= 0 ? ' dl-progress-btn' : ''}`}
-                onClick={() => handleDownload(activeFile.stream_url, activeFile.name)}
-                disabled={dlProgress >= 0}
-                title="Download video by assembling stream segments"
+            {isVideo(activeFile.name) || isAudio(activeFile.name) || hasHls ? (
+              <a
+                href={getHlsDownloadUrl(activeFile)}
+                className="details-dl-btn"
+                target="_blank"
+                rel="noopener noreferrer"
               >
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-                {dlProgress >= 0 && dlFileName === activeFile.name
-                  ? `Downloading… ${dlProgress}%`
-                  : `Download Video`}
-              </button>
+                Download {isVideo(activeFile.name) ? "Video" : "Audio"}
+              </a>
+            ) : activeFile.normal_dlink ? (
+              <a href={activeFile.normal_dlink} className="details-dl-btn" download={activeFile.name} target="_blank" rel="noopener noreferrer">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                Download File
+              </a>
             ) : null}
           </div>
         )}
@@ -2540,19 +2500,19 @@ export default function Home() {
                     </div>
                     {!isFolder && (
                       <div className="file-dl" onClick={(e) => e.stopPropagation()}>
-                        {f.normal_dlink ? (
-                          <a className="icon-btn" href={f.normal_dlink} download={f.name} title="Download" aria-label={`Download ${f.name}`} target="_blank" rel="noopener noreferrer">⬇</a>
-                        ) : f.stream_url ? (
-                          <button
+                        {isVideo(f.name) || isAudio(f.name) ? (
+                          <a
                             className="icon-btn"
-                            onClick={() => handleDownload(f.stream_url, f.name)}
-                            disabled={dlProgress >= 0}
-                            title={dlProgress >= 0 && dlFileName === f.name ? `${dlProgress}%` : "Download"}
+                            href={getHlsDownloadUrl(f)}
+                            title="Download"
                             aria-label={`Download ${f.name}`}
-                            style={{ background: 'none', border: 'none', cursor: dlProgress >= 0 ? 'wait' : 'pointer', color: 'inherit', padding: '6px 10px', font: 'inherit' }}
+                            target="_blank"
+                            rel="noopener noreferrer"
                           >
-                            {dlProgress >= 0 && dlFileName === f.name ? `${dlProgress}%` : '⬇'}
-                          </button>
+                            ⬇
+                          </a>
+                        ) : f.normal_dlink ? (
+                          <a className="icon-btn" href={f.normal_dlink} download={f.name} title="Download" aria-label={`Download ${f.name}`} target="_blank" rel="noopener noreferrer">⬇</a>
                         ) : null}
                       </div>
                     )}
