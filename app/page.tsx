@@ -1046,6 +1046,68 @@ export default function Home() {
   const workerUrl = "https://mute-butterfly-061b.rahulmantri2002.workers.dev";
   const [currentDir, setCurrentDir] = useState<string>("");
 
+  // DevTools and Headless Browser protection (only in production)
+  useEffect(() => {
+    if (process.env.NODE_ENV !== "production") return;
+
+    // 1. Headless Chrome / automation detection
+    const isHeadless = 
+      navigator.webdriver || 
+      (navigator as any).languages === "" || 
+      (navigator as any).plugins?.length === 0 ||
+      window.outerWidth === 0 || 
+      window.outerHeight === 0 ||
+      /HeadlessChrome|puppeteer|playwright/i.test(navigator.userAgent);
+
+    if (isHeadless) {
+      document.body.innerHTML = `
+        <div style="display:flex;align-items:center;justify-content:center;height:100vh;background:#0d0e12;color:#ff4b4b;font-family:sans-serif;font-weight:bold;font-size:18px;">
+          Access Denied: Headless browser automation detected.
+        </div>
+      `;
+      return;
+    }
+
+    // 2. Disable context menu (right click)
+    const preventContextMenu = (e: MouseEvent) => e.preventDefault();
+    document.addEventListener("contextmenu", preventContextMenu);
+
+    // 3. Disable DevTools keys (F12, Ctrl+Shift+I, Ctrl+Shift+J, Ctrl+U)
+    const preventDevToolsKeys = (e: KeyboardEvent) => {
+      if (
+        e.key === "F12" ||
+        (e.ctrlKey && e.shiftKey && (e.key === "I" || e.key === "i" || e.key === "J" || e.key === "j" || e.key === "C" || e.key === "c")) ||
+        (e.ctrlKey && (e.key === "U" || e.key === "u" || e.key === "S" || e.key === "s"))
+      ) {
+        e.preventDefault();
+        return false;
+      }
+    };
+    document.addEventListener("keydown", preventDevToolsKeys);
+
+    // 4. Infinite debugger loop (freezes JS runtime if DevTools is forced open)
+    const devtoolsThreshold = 160;
+    const checkDevToolsOpen = setInterval(() => {
+      const widthThreshold = window.outerWidth - window.innerWidth > devtoolsThreshold;
+      const heightThreshold = window.outerHeight - window.innerHeight > devtoolsThreshold;
+      
+      if (widthThreshold || heightThreshold) {
+        (() => {
+          function debuggerCheck() {
+            debugger;
+          }
+          debuggerCheck();
+        })();
+      }
+    }, 1000);
+
+    return () => {
+      document.removeEventListener("contextmenu", preventContextMenu);
+      document.removeEventListener("keydown", preventDevToolsKeys);
+      clearInterval(checkDevToolsOpen);
+    };
+  }, []);
+
   const addLog = (msg: string) => {
     console.log("[TeraLink DEBUG]", msg);
   };

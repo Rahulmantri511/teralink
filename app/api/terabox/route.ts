@@ -75,7 +75,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Secure IP Resolution (prevents X-Forwarded-For header spoofing bypasses)
-    const ip = req.ip ||
+    const ip = (req as any).ip ||
                req.headers.get('cf-connecting-ip') ||
                req.headers.get('x-vercel-ip') ||
                req.headers.get('x-real-ip') ||
@@ -159,7 +159,6 @@ export async function POST(req: NextRequest) {
     console.log(`[resolve] URL: ${trimmed}, code: ${code}${dir ? `, dir: ${dir}` : ''}`);
 
     const envCookie = process.env.TERABOX_COOKIE ?? '';
-    const userAgent = req.headers.get('user-agent') || '';
     const result = await resolveTerabox(trimmed, envCookie, dir, userAgent);
 
     if (result.status !== 'success') {

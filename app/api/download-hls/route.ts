@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { rateLimit } from '../../lib/rate-limit';
+import { rateLimit } from '../../../lib/rate-limit';
 
 export async function GET(req: NextRequest) {
   // User-Agent Bot Detection
@@ -56,7 +56,7 @@ export async function GET(req: NextRequest) {
   }
 
   // Secure IP Resolution (prevents X-Forwarded-For header spoofing bypasses)
-  const ip = req.ip ||
+  const ip = (req as any).ip ||
              req.headers.get('cf-connecting-ip') ||
              req.headers.get('x-vercel-ip') ||
              req.headers.get('x-real-ip') ||
