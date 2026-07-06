@@ -38,23 +38,19 @@ function VideoPlayer({ activeFile, workerUrl }: VideoPlayerProps) {
   const hlsRef = useRef<Hls | null>(null);
 
   const qualities = activeFile.fast_stream_url || {};
-  const qualityKeys = Object.keys(qualities).filter(k => qualities[k]);
+  const getQualityRank = (q: string) => {
+    const num = parseInt(q.replace(/\D/g, ""), 10);
+    if (!isNaN(num)) return num;
+    const qLower = q.toLowerCase();
+    if (qLower.includes("original") || qLower.includes("full")) return 9999;
+    if (qLower.includes("preview")) return -50;
+    return 0;
+  };
+  const qualityKeys = Object.keys(qualities)
+    .filter(k => qualities[k])
+    .sort((a, b) => getQualityRank(b) - getQualityRank(a));
 
-  const [currentQuality, setCurrentQuality] = useState<string>(() => {
-    const qualities = activeFile.fast_stream_url || {};
-    const keys = Object.keys(qualities).filter(k => qualities[k]);
-    // Prioritize the full video ("Original (Full)") by default so the full length plays.
-    // If it's not present, fall back to segmented preview qualities.
-    const preferredOrder = [
-      "480p", "360p", "720p", "1080p",
-      "Original (Full)",
-      "Preview (480p)", "Preview (360p)", "Preview (720p)", "Preview (1080p)"
-    ];
-    for (const key of preferredOrder) {
-      if (keys.includes(key)) return key;
-    }
-    return keys[0] || "default";
-  });
+  const [currentQuality, setCurrentQuality] = useState<string>("default");
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -2014,16 +2010,20 @@ export default function Home() {
           background: rgba(255,255,255,0.1);
           color: #fff;
         }
-        .settings-panel {
+        .settings-menu-wrap {
+          position: relative;
+          display: inline-flex;
+        }
+        .settings-popover {
           position: absolute;
           bottom: calc(100% + 12px);
-          right: 12px;
+          right: 0;
           background: rgba(17, 20, 34, 0.97);
           backdrop-filter: blur(20px);
           border: 1px solid rgba(255,255,255,0.1);
           border-radius: 14px;
           padding: 16px;
-          min-width: 200px;
+          min-width: 220px;
           z-index: 20;
           box-shadow: 0 8px 32px rgba(0,0,0,0.6);
           animation: fadeInUp 0.15s ease;

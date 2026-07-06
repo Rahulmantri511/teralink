@@ -25,6 +25,8 @@ const ALLOWED_HOSTS = [
   '4funbox.com',
   'workers.dev',
   'xapiverse.com',
+  'baidu.com',
+  'baidupcs.com',
 ];
 
 function isAllowedHost(rawUrl: string): boolean {
@@ -38,6 +40,25 @@ function isAllowedHost(rawUrl: string): boolean {
 
 const UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36';
+
+// Memory cache to prevent duplicate xAPIverse credit consumption on stream/seeks
+const cdnUrlCache = new Map<string, { rawUrl: string; expires: number }>();
+const CACHE_TTL = 2 * 60 * 60 * 1000; // Cache for 2 hours
+
+async function getRedirectUrl(url: string): Promise<string> {
+  try {
+    const resp = await fetch(url, {
+      method: 'GET',
+      headers: { 'Range': 'bytes=0-0' },
+      redirect: 'follow',
+      signal: AbortSignal.timeout(5000),
+    });
+    return resp.url || url;
+  } catch (err) {
+    console.error(`[stream] Failed to follow redirect for ${url}:`, err);
+    return url;
+  }
+}
 
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl;
@@ -56,12 +77,30 @@ export async function GET(req: NextRequest) {
     targetUrl = urlParam;
   }
 
+  // ── On-demand xAPIverse Redirect Resolution & Caching ────────────────────────
+  const isXapiverse = targetUrl.includes('workers.dev') || targetUrl.includes('xapiverse.com');
+  if (isXapiverse) {
+    const cached = cdnUrlCache.get(targetUrl);
+    if (cached && Date.now() < cached.expires) {
+      targetUrl = cached.rawUrl;
+    } else {
+      console.log(`[stream] Resolving xAPIverse redirect on-demand: ${targetUrl}`);
+      const resolved = await getRedirectUrl(targetUrl);
+      console.log(`[stream] Resolved raw CDN URL: ${resolved}`);
+      cdnUrlCache.set(targetUrl, {
+        rawUrl: resolved,
+        expires: Date.now() + CACHE_TTL,
+      });
+      targetUrl = resolved;
+    }
+  }
+
   const rangeHeader = req.headers.get('range');
   const envCookie = process.env.TERABOX_COOKIE ?? '';
   const workerUrl = process.env.TERABOX_WORKER_URL;
 
   // ── Option 1: Delegate to Cloudflare Worker (bypasses regional blocks) ──────
-  if (workerUrl) {
+  if (workerUrl && !isXapiverse) {
     const cookiesParam = searchParams.get('cookies') || '';
     const workerStream = `${workerUrl.replace(/\/$/, '')}/stream?url=${encodeURIComponent(urlParam)}${download ? '&dl=1' : ''}${cookiesParam ? `&cookies=${encodeURIComponent(cookiesParam)}` : ''}`;
     try {

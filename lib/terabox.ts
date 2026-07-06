@@ -140,6 +140,22 @@ export async function resolveTerabox(
       return { error: 'No files found in this share' };
     }
 
+    // Map links to our own /api/stream proxy on-demand without resolving redirects in advance
+    if (data.list && data.list.length > 0) {
+      for (const file of data.list) {
+        if (file.is_dir !== '1') {
+          if (file.normal_dlink) {
+            const encodedUrl = Buffer.from(file.normal_dlink).toString('base64');
+            file.normal_dlink = `/api/stream?url=${encodedUrl}&dl=1`;
+          }
+          if (file.stream_url) {
+            const encodedUrl = Buffer.from(file.stream_url).toString('base64');
+            file.stream_url = `/api/stream?url=${encodedUrl}`;
+          }
+        }
+      }
+    }
+
     return {
       status: 'success',
       total_files: data.total_files ?? data.list.length,
