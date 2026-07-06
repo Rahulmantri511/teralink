@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import GoogleAnalytics from "./GoogleAnalytics";
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://teralink.in"),
@@ -92,8 +93,10 @@ export default function RootLayout({
         />
       </head>
       <body>
+        <GoogleAnalytics />
         {children}
       </body>
     </html>
   );
 }
+

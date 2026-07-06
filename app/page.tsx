@@ -4,6 +4,8 @@ import { useState, useRef, useEffect } from "react";
 import Image from "next/image";
 import Hls from "hls.js";
 import type { TeraboxFile, TeraboxResult } from "../lib/terabox";
+import * as gtag from "../lib/gtag";
+
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -71,6 +73,8 @@ function VideoPlayer({ activeFile, workerUrl }: VideoPlayerProps) {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const settingsRef = useRef<HTMLDivElement>(null);
   const hlsRef = useRef<Hls | null>(null);
+  const playTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const watchAccumulatorRef = useRef<number>(0);
 
   const qualities = activeFile.fast_stream_url || {};
   const getQualityRank = (q: string) => {
@@ -150,6 +154,55 @@ function VideoPlayer({ activeFile, workerUrl }: VideoPlayerProps) {
     return `${base}${pathOrUrl}`;
   };
 
+  // Playback timer to track active watch time (in seconds/minutes)
+  useEffect(() => {
+    if (isPlaying) {
+      playTimerRef.current = setInterval(() => {
+        watchAccumulatorRef.current += 1;
+        if (watchAccumulatorRef.current >= 10) {
+          gtag.event("video_watch_time", {
+            video_name: activeFile.name,
+            video_id: activeFile.fs_id,
+            seconds_watched: 10,
+            minutes_watched: 10 / 60,
+            quality: currentQuality,
+          });
+          watchAccumulatorRef.current = 0;
+        }
+      }, 1000);
+    } else {
+      if (playTimerRef.current) {
+        clearInterval(playTimerRef.current);
+        playTimerRef.current = null;
+      }
+      if (watchAccumulatorRef.current > 0) {
+        gtag.event("video_watch_time", {
+          video_name: activeFile.name,
+          video_id: activeFile.fs_id,
+          seconds_watched: watchAccumulatorRef.current,
+          minutes_watched: watchAccumulatorRef.current / 60,
+          quality: currentQuality,
+        });
+        watchAccumulatorRef.current = 0;
+      }
+    }
+
+    return () => {
+      if (playTimerRef.current) {
+        clearInterval(playTimerRef.current);
+      }
+      if (watchAccumulatorRef.current > 0) {
+        gtag.event("video_watch_time", {
+          video_name: activeFile.name,
+          video_id: activeFile.fs_id,
+          seconds_watched: watchAccumulatorRef.current,
+          minutes_watched: watchAccumulatorRef.current / 60,
+          quality: currentQuality,
+        });
+        watchAccumulatorRef.current = 0;
+      }
+    };
+  }, [isPlaying, activeFile, currentQuality]);
 
   const currentStreamUrl = currentQuality === "default" 
     ? (activeFile.stream_url)
@@ -216,6 +269,12 @@ function VideoPlayer({ activeFile, workerUrl }: VideoPlayerProps) {
   };
 
   const handleQualityChange = (q: string) => {
+    gtag.event("video_quality_change", {
+      video_name: activeFile.name,
+      video_id: activeFile.fs_id,
+      from_quality: currentQuality,
+      to_quality: q,
+    });
     setCurrentQuality(q);
     setShowSettings(false);
   };
@@ -370,6 +429,16 @@ function VideoPlayer({ activeFile, workerUrl }: VideoPlayerProps) {
           console.error("HLS.js error:", data);
           if (data.fatal) {
             const isVerificationErr = data.response?.code === 403;
+            let errMsg = `HLS fatal error: ${data.details}`;
+            if (isVerificationErr) {
+              errMsg = "TeraBox guest session expired or verification is required.";
+            }
+            gtag.event("video_error", {
+              video_name: activeFile.name,
+              video_id: activeFile.fs_id,
+              error_message: errMsg,
+            });
+
             if (isVerificationErr) {
               setPlayerError("TeraBox guest session expired or verification is required. Please try refreshing/re-generating the play link.");
               return;
@@ -385,6 +454,12 @@ function VideoPlayer({ activeFile, workerUrl }: VideoPlayerProps) {
                 setPlayerError("Streaming timeout or CORS block. Press retry below.");
                 break;
             }
+          } else {
+            gtag.event("video_error_nonfatal", {
+              video_name: activeFile.name,
+              video_id: activeFile.fs_id,
+              error_message: `HLS non-fatal error: ${data.details}`,
+            });
           }
         });
       } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
@@ -704,8 +779,22 @@ function VideoPlayer({ activeFile, workerUrl }: VideoPlayerProps) {
           style={{ filter: `brightness(${videoBrightness})` }}
           playsInline
           autoPlay
-          onPlay={() => setIsPlaying(true)}
-          onPause={() => setIsPlaying(false)}
+          onPlay={() => {
+            setIsPlaying(true);
+            gtag.event("video_play", {
+              video_name: activeFile.name,
+              video_id: activeFile.fs_id,
+              quality: currentQuality,
+            });
+          }}
+          onPause={() => {
+            setIsPlaying(false);
+            gtag.event("video_pause", {
+              video_name: activeFile.name,
+              video_id: activeFile.fs_id,
+              position_seconds: videoRef.current?.currentTime || 0,
+            });
+          }}
           onTimeUpdate={handleTimeUpdate}
           onDurationChange={(e) => setDuration(e.currentTarget.duration)}
           onWaiting={() => setIsBuffering(true)}
@@ -716,11 +805,23 @@ function VideoPlayer({ activeFile, workerUrl }: VideoPlayerProps) {
           onTouchStart={handleTouchStart}
           onTouchMove={handleTouchMove}
           onTouchEnd={handleTouchEnd}
+          onEnded={() => {
+            gtag.event("video_complete", {
+              video_name: activeFile.name,
+              video_id: activeFile.fs_id,
+            });
+          }}
           onError={(e) => {
             const err = (e.target as HTMLVideoElement).error;
             console.error("Video element playback error:", err);
             if (err) {
-              setPlayerError(`Playback error (code ${err.code}): ${err.message || "Failed to load video or format is unsupported."}`);
+              const errMsg = `Playback error (code ${err.code}): ${err.message || "Failed to load video or format is unsupported."}`;
+              setPlayerError(errMsg);
+              gtag.event("video_error", {
+                video_name: activeFile.name,
+                video_id: activeFile.fs_id,
+                error_message: errMsg,
+              });
             }
           }}
         >
@@ -949,11 +1050,19 @@ export default function Home() {
     console.log("[TeraLink DEBUG]", msg);
   };
 
- 
+  const getDomain = (urlStr: string) => {
+    try {
+      return new URL(urlStr).hostname.replace("www.", "");
+    } catch {
+      return "invalid";
+    }
+  };
+
+
   async function resolveLink() {
     addLog("resolveLink() called. Current link: '" + link + "'");
+    const trimmed = (link || "").trim();
     try {
-      const trimmed = (link || "").trim();
       addLog("Trimmed link: '" + trimmed + "'");
       if (!trimmed) {
         setError("Please paste or type a TeraBox link first.");
@@ -984,6 +1093,12 @@ export default function Home() {
         setError(errMsg);
         addLog("API error detail: " + errMsg);
         setStatus("");
+        
+        gtag.event("resolve_url", {
+          status: "failed",
+          url_domain: getDomain(trimmed),
+          error_message: errMsg,
+        });
         return;
       }
 
@@ -993,6 +1108,15 @@ export default function Home() {
       const first =
         json.list?.find((f) => f.is_dir !== "1" && (f.stream_url || (f.fast_stream_url && Object.keys(f.fast_stream_url).length > 0))) ?? null;
       addLog("First playable file determined: " + (first ? first.name : "None"));
+
+      gtag.event("resolve_url", {
+        status: "success",
+        url_domain: getDomain(trimmed),
+        file_count: json.list?.length || 0,
+        first_file_name: first?.name || "none",
+        first_file_type: first ? (isVideo(first.name) ? "video" : isAudio(first.name) ? "audio" : "other") : "none",
+      });
+
       setActiveFile(first);
       setStatus("Ready!");
       setTimeout(() => setStatus(""), 2000);
@@ -1001,6 +1125,12 @@ export default function Home() {
       addLog("Exception in resolveLink: " + message);
       setError(`Network error: ${message}`);
       setStatus("");
+      
+      gtag.event("resolve_url", {
+        status: "failed",
+        url_domain: getDomain(trimmed),
+        error_message: message,
+      });
     } finally {
       setLoading(false);
       addLog("resolveLink() execution finished");
@@ -1083,7 +1213,20 @@ export default function Home() {
         <div className="player-wrap generic-wrap">
           <p className="generic-icon">📄</p>
           <p className="generic-name">{activeFile.name}</p>
-          <a href={activeFile.normal_dlink || link} download={!!activeFile.normal_dlink} target="_blank" rel="noopener noreferrer" className="dl-btn">
+          <a
+            href={activeFile.normal_dlink || link}
+            download={!!activeFile.normal_dlink}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="dl-btn"
+            onClick={() => {
+              gtag.event("download_click", {
+                video_name: activeFile.name,
+                video_id: activeFile.fs_id,
+                download_type: activeFile.normal_dlink ? "normal_dlink" : "terabox_fallback"
+              });
+            }}
+          >
             ⬇ {activeFile.normal_dlink ? `Download (${activeFile.size_formatted})` : "Download (via TeraBox)"}
           </a>
         </div>
@@ -1107,12 +1250,32 @@ export default function Home() {
                 className="details-dl-btn"
                 target="_blank"
                 rel="noopener noreferrer"
+                onClick={() => {
+                  gtag.event("download_click", {
+                    video_name: activeFile.name,
+                    video_id: activeFile.fs_id,
+                    download_type: "hls_download"
+                  });
+                }}
               >
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
                 Download {isVideo(activeFile.name) ? "Video" : "Audio"}
               </a>
             ) : activeFile.normal_dlink ? (
-              <a href={activeFile.normal_dlink} className="details-dl-btn" download={activeFile.name} target="_blank" rel="noopener noreferrer">
+              <a
+                href={activeFile.normal_dlink}
+                className="details-dl-btn"
+                download={activeFile.name}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={() => {
+                  gtag.event("download_click", {
+                    video_name: activeFile.name,
+                    video_id: activeFile.fs_id,
+                    download_type: "normal_dlink"
+                  });
+                }}
+              >
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
                 Download File
               </a>
@@ -2508,11 +2671,35 @@ export default function Home() {
                             aria-label={`Download ${f.name}`}
                             target="_blank"
                             rel="noopener noreferrer"
+                            onClick={() => {
+                              gtag.event("download_click", {
+                                video_name: f.name,
+                                video_id: f.fs_id,
+                                download_type: "hls_download"
+                              });
+                            }}
                           >
                             ⬇
                           </a>
                         ) : f.normal_dlink ? (
-                          <a className="icon-btn" href={f.normal_dlink} download={f.name} title="Download" aria-label={`Download ${f.name}`} target="_blank" rel="noopener noreferrer">⬇</a>
+                          <a
+                            className="icon-btn"
+                            href={f.normal_dlink}
+                            download={f.name}
+                            title="Download"
+                            aria-label={`Download ${f.name}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={() => {
+                              gtag.event("download_click", {
+                                video_name: f.name,
+                                video_id: f.fs_id,
+                                download_type: "normal_dlink"
+                              });
+                            }}
+                          >
+                            ⬇
+                          </a>
                         ) : null}
                       </div>
                     )}
