@@ -111,6 +111,43 @@ export async function resolveTerabox(
 
     console.log(`[terabox] Resolving: ${code}`);
 
+    const apiKey = process.env.XAPIVERSE_KEY || 'sk_4f491d4e1be5796dbd33bd45528bed57';
+    
+    // Call xAPIverse API
+    const reqBody: Record<string, any> = { url: shareUrl };
+    if (dir) reqBody.dir = dir;
+
+    const response = await fetch('https://xapiverse.com/api/terabox', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'xAPIverse-Key': apiKey,
+      },
+      body: JSON.stringify(reqBody),
+    });
+
+    if (!response.ok) {
+      const text = await response.text().catch(() => '');
+      return { error: `xAPIverse API returned HTTP ${response.status}: ${text}` };
+    }
+
+    const data = await response.json();
+    if (data.status !== 'success') {
+      return { error: data.error || data.message || 'xAPIverse API returned failure status' };
+    }
+
+    if (!data.list || !data.list.length) {
+      return { error: 'No files found in this share' };
+    }
+
+    return {
+      status: 'success',
+      total_files: data.total_files ?? data.list.length,
+      total_folders: data.total_folders ?? 0,
+      list: data.list,
+    };
+
+    /* ─── Commented out old normal API/worker/local resolver ───
     const workerUrl = process.env.TERABOX_WORKER_URL;
     if (!workerUrl) {
       return {
@@ -187,7 +224,7 @@ export async function resolveTerabox(
       total_folders: workerData.total_folders,
       list: workerData.list,
     };
-
+    */
   } catch (err: any) {
     console.error('[terabox] Unhandled error:', err);
     return { error: err?.message ?? 'Unknown error' };

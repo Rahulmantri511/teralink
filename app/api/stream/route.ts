@@ -23,6 +23,8 @@ const ALLOWED_HOSTS = [
   'terabox.fun',
   'terabox.tech',
   '4funbox.com',
+  'workers.dev',
+  'xapiverse.com',
 ];
 
 function isAllowedHost(rawUrl: string): boolean {
