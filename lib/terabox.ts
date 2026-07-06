@@ -111,7 +111,7 @@ export async function resolveTerabox(
 
     console.log(`[terabox] Resolving: ${code}`);
 
-    const apiKey = process.env.XAPIVERSE_KEY || 'sk_4f491d4e1be5796dbd33bd45528bed57';
+    const apiKey = process.env.XAPIVERSE_KEY || '';
     
     // Call xAPIverse API
     const reqBody: Record<string, any> = { url: shareUrl };
