@@ -96,13 +96,6 @@ export default function RootLayout({
       <body>
         <GoogleAnalytics />
         {children}
-        {/* Monetag Ads Script - Loaded lazy to protect Core Web Vitals and Google SEO Rank */}
-        <Script
-          src="https://quge5.com/88/tag.min.js"
-          data-zone="256978"
-          strategy="lazyOnload"
-          data-cfasync="false"
-        />
       </body>
     </html>
   );
