@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import GoogleAnalytics from "./GoogleAnalytics";
+import Script from "next/script";
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://teralink.in"),
@@ -91,17 +92,17 @@ export default function RootLayout({
           src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-4863036831697942"
           crossOrigin="anonymous"
         />
-        {/* Monetag Ads Script */}
-        <script
-          src="https://quge5.com/88/tag.min.js"
-          data-zone="256978"
-          async
-          data-cfasync="false"
-        />
       </head>
       <body>
         <GoogleAnalytics />
         {children}
+        {/* Monetag Ads Script - Loaded lazy to protect Core Web Vitals and Google SEO Rank */}
+        <Script
+          src="https://quge5.com/88/tag.min.js"
+          data-zone="256978"
+          strategy="lazyOnload"
+          data-cfasync="false"
+        />
       </body>
     </html>
   );
