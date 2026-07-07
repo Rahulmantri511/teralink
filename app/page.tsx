@@ -1052,13 +1052,9 @@ export default function Home() {
   useEffect(() => {
     if (process.env.NODE_ENV !== "production") return;
 
-    // 1. Headless Chrome / automation detection
+    // 1. Headless Chrome / automation detection (simplified to prevent mobile false-positives)
     const isHeadless = 
       navigator.webdriver || 
-      (navigator as any).languages === "" || 
-      (navigator as any).plugins?.length === 0 ||
-      window.outerWidth === 0 || 
-      window.outerHeight === 0 ||
       /HeadlessChrome|puppeteer|playwright/i.test(navigator.userAgent);
 
     if (isHeadless) {
