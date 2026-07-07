@@ -56,7 +56,7 @@ function base64UrlToArrayBuffer(base64url: string): Uint8Array {
 }
 
 export async function encryptPayload(url: string, cookies: string): Promise<string> {
-  const data = JSON.stringify({ url, cookies });
+  const data = JSON.stringify({ url, cookies, createdAt: Date.now() });
   const key = await deriveKey(ENCRYPTION_PASSWORD);
   const iv = getCrypto().getRandomValues(new Uint8Array(12));
   const encoded = new TextEncoder().encode(data);
@@ -75,7 +75,7 @@ export async function encryptPayload(url: string, cookies: string): Promise<stri
   return arrayBufferToBase64Url(combined);
 }
 
-export async function decryptPayload(base64url: string): Promise<{ url: string; cookies: string }> {
+export async function decryptPayload(base64url: string): Promise<{ url: string; cookies: string; createdAt?: number }> {
   const key = await deriveKey(ENCRYPTION_PASSWORD);
   const subtle = getSubtle();
   const combined = base64UrlToArrayBuffer(base64url);
@@ -90,5 +90,13 @@ export async function decryptPayload(base64url: string): Promise<{ url: string; 
   );
   
   const decryptedText = new TextDecoder().decode(decrypted);
-  return JSON.parse(decryptedText);
+  const parsed = JSON.parse(decryptedText);
+
+  // Enforce 4 hours expiration (4 * 60 * 60 * 1000 = 14400000 ms)
+  const EXPIRATION_MS = 4 * 60 * 60 * 1000;
+  if (parsed.createdAt && Date.now() - parsed.createdAt > EXPIRATION_MS) {
+    throw new Error('Payload expired');
+  }
+
+  return parsed;
 }

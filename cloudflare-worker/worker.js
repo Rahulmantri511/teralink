@@ -1106,11 +1106,18 @@ async function decryptPayload(base64url, password) {
     ciphertext
   );
   const decryptedText = new TextDecoder().decode(decrypted);
-  return JSON.parse(decryptedText);
+  const parsed = JSON.parse(decryptedText);
+
+  // Enforce 4 hours expiration (4 * 60 * 60 * 1000 = 14400000 ms)
+  const EXPIRATION_MS = 4 * 60 * 60 * 1000;
+  if (parsed.createdAt && (Date.now() - parsed.createdAt > EXPIRATION_MS)) {
+    throw new Error('Payload expired');
+  }
+  return parsed;
 }
 
 async function encryptPayload(url, cookies, password) {
-  const data = JSON.stringify({ url, cookies });
+  const data = JSON.stringify({ url, cookies, createdAt: Date.now() });
   const key = await deriveKey(password);
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const encoded = new TextEncoder().encode(data);
@@ -1162,6 +1169,36 @@ const handler = {
     // Health check
     if (url.pathname === '/') {
       return jsonResp({ status: 'ok', message: 'TeraLink Worker is running' });
+    }
+
+    // Verify Origin or Referer to block bot spam and direct external usage
+    const origin = request.headers.get('Origin');
+    const referer = request.headers.get('Referer');
+    const allowedHosts = ['teralink.in', 'www.teralink.in'];
+
+    let isRequestAllowed = false;
+    try {
+      if (origin) {
+        const host = new URL(origin).host.toLowerCase();
+        if (allowedHosts.includes(host) || host.startsWith('localhost:') || host === 'localhost' || host.startsWith('127.0.0.1')) {
+          isRequestAllowed = true;
+        }
+      } else if (referer) {
+        const host = new URL(referer).host.toLowerCase();
+        if (allowedHosts.includes(host) || host.startsWith('localhost:') || host === 'localhost' || host.startsWith('127.0.0.1')) {
+          isRequestAllowed = true;
+        }
+      }
+    } catch {}
+
+    // Enforce Origin/Referer verification on critical endpoints: /resolve and /fast_stream
+    if (url.pathname === '/resolve' || url.pathname === '/fast_stream') {
+      if (!isRequestAllowed) {
+        return new Response(JSON.stringify({ error: 'Access Denied: Direct requests are forbidden' }), {
+          status: 403,
+          headers: { 'Content-Type': 'application/json', ...CORS }
+        });
+      }
     }
 
     // GET /resolve?code=xxx&dir=yyy

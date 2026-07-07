@@ -91,6 +91,23 @@ export async function GET(req: NextRequest) {
     m3u8Url = m3u8UrlEncoded;
   }
 
+  // Validate that the target URL is from our authorized Cloudflare Worker domain to prevent arbitrary proxying/abuse
+  const allowedWorkerHost = 'mute-butterfly-061b.rahulmantri2002.workers.dev';
+  try {
+    const parsedUrl = new URL(m3u8Url);
+    const host = parsedUrl.host.toLowerCase();
+    const isAllowed = 
+      host === allowedWorkerHost || 
+      host.endsWith('.workers.dev') || // matches workers.dev subdomains
+      host === 'localhost:8787';       // local worker testing
+
+    if (!isAllowed) {
+      return new Response('Forbidden: Host not allowed for download proxy', { status: 403 });
+    }
+  } catch {
+    return new Response('Invalid target URL structure', { status: 400 });
+  }
+
   try {
     console.log(`[download-hls] Starting download for: ${filename}, playlist: ${m3u8Url}`);
     const playlistResp = await fetch(m3u8Url);
