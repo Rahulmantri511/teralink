@@ -1045,6 +1045,8 @@ export default function Home() {
   // carry a setter that's never called.
   const workerUrl = "https://mute-butterfly-061b.rahulmantri2002.workers.dev";
   const [currentDir, setCurrentDir] = useState<string>("");
+  const isResolvingRef = useRef(false);
+  const isOpeningFolderRef = useRef(false);
 
   // DevTools and Headless Browser protection (only in production)
   useEffect(() => {
@@ -1122,6 +1124,8 @@ export default function Home() {
 
 
   async function resolveLink() {
+    if (isResolvingRef.current) return;
+    isResolvingRef.current = true;
     addLog("resolveLink() called. Current link: '" + link + "'");
     const trimmed = (link || "").trim();
     try {
@@ -1129,6 +1133,7 @@ export default function Home() {
       if (!trimmed) {
         setError("Please paste or type a TeraBox link first.");
         addLog("Aborted: link is empty");
+        isResolvingRef.current = false;
         return;
       }
       setError("");
@@ -1195,11 +1200,14 @@ export default function Home() {
       });
     } finally {
       setLoading(false);
+      isResolvingRef.current = false;
       addLog("resolveLink() execution finished");
     }
   }
 
   async function openFolder(path: string) {
+    if (isOpeningFolderRef.current) return;
+    isOpeningFolderRef.current = true;
     setError("");
     setLoading(true);
     setStatus(`Opening folder ${path}…`);
@@ -1216,6 +1224,7 @@ export default function Home() {
       if (!res.ok || json.status !== "success") {
         setError(json.error || `Failed to open folder (${res.status})`);
         setStatus("");
+        isOpeningFolderRef.current = false;
         return;
       }
 
@@ -1234,6 +1243,7 @@ export default function Home() {
       setStatus("");
     } finally {
       setLoading(false);
+      isOpeningFolderRef.current = false;
     }
   }
 
