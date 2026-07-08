@@ -12,7 +12,18 @@ export async function GET(req: NextRequest) {
     userAgentLower.includes('wget') || 
     userAgentLower.includes('postman') ||
     userAgentLower.includes('axios') ||
-    userAgentLower.includes('go-http-client');
+    userAgentLower.includes('go-http-client') ||
+    userAgentLower === 'node' ||
+    userAgentLower.startsWith('node-fetch') ||
+    userAgentLower.startsWith('node/') ||
+    userAgentLower.includes('undici') ||
+    userAgentLower.includes('got/') ||
+    userAgentLower.includes('superagent') ||
+    userAgentLower.includes('java/') ||
+    userAgentLower.includes('okhttp') ||
+    userAgentLower.includes('httpx') ||
+    userAgentLower.includes('ruby') ||
+    userAgentLower.includes('php');
     
   if (isBotUA) {
     return new Response('Forbidden: bot detected', { status: 403 });
