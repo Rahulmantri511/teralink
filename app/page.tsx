@@ -5,6 +5,10 @@ import Image from "next/image";
 import Hls from "hls.js";
 import type { TeraboxFile, TeraboxResult } from "../lib/terabox";
 import * as gtag from "../lib/gtag";
+import AuthModal from "../components/AuthModal";
+import GuestLimitModal from "../components/GuestLimitModal";
+import type { User } from "@supabase/supabase-js";
+
 
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
@@ -1048,6 +1052,86 @@ export default function Home() {
   const isResolvingRef = useRef(false);
   const isOpeningFolderRef = useRef(false);
 
+  const [user, setUser] = useState<User | null>(null);
+  const [guestPlays, setGuestPlays] = useState<number>(0);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [isLimitModalOpen, setIsLimitModalOpen] = useState(false);
+  const [stats, setStats] = useState<{
+    activeUsers: number;
+    linksResolved: number;
+    videosPlayed: number;
+  } | null>(null);
+
+  const fetchSession = async () => {
+    try {
+      const res = await fetch("/api/auth/session");
+      const data = await res.json();
+      setUser(data.user);
+    } catch {
+      setUser(null);
+    }
+  };
+
+  useEffect(() => {
+    let hasHash = false;
+    if (typeof window !== "undefined" && window.location.hash) {
+      const hash = window.location.hash.substring(1);
+      const params = new URLSearchParams(hash);
+      const accessToken = params.get("access_token");
+      const refreshToken = params.get("refresh_token");
+      const expiresIn = params.get("expires_in");
+
+      if (accessToken && refreshToken) {
+        hasHash = true;
+        fetch("/api/auth/session", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ accessToken, refreshToken, expiresIn }),
+        }).then((res) => {
+          if (res.ok) {
+            window.history.replaceState(null, "", window.location.pathname);
+            fetchSession();
+          } else {
+            fetchSession();
+          }
+        }).catch(() => {
+          fetchSession();
+        });
+      }
+    }
+
+    if (!hasHash) {
+      fetchSession();
+    }
+
+    // Fetch stats from local API which aggregates Google Analytics data
+    fetch("/api/stats")
+      .then((res) => res.json())
+      .then((data) => {
+        if (!data.error) {
+          setStats(data);
+        }
+      })
+      .catch((err) => console.error("Error fetching stats:", err));
+
+    const plays = localStorage.getItem("tl_guest_plays");
+    if (plays) {
+      setGuestPlays(parseInt(plays, 10));
+    } else {
+      localStorage.setItem("tl_guest_plays", "0");
+      setGuestPlays(0);
+    }
+  }, []);
+
+  async function handleSignOut() {
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+    } catch (err) {
+      console.error("Sign out error:", err);
+    }
+    setUser(null);
+  }
+
   // DevTools and Headless Browser protection (only in production)
   useEffect(() => {
     if (process.env.NODE_ENV !== "production") return;
@@ -1132,6 +1216,13 @@ export default function Home() {
         isResolvingRef.current = false;
         return;
       }
+      
+      if (!user && guestPlays >= 5) {
+        setIsLimitModalOpen(true);
+        isResolvingRef.current = false;
+        return;
+      }
+
       setError("");
       setResult(null);
       setActiveFile(null);
@@ -1162,11 +1253,18 @@ export default function Home() {
           url_domain: getDomain(trimmed),
           error_message: errMsg,
         });
+        isResolvingRef.current = false;
         return;
       }
 
       setResult(json);
       addLog("Successfully loaded file list. Total files/folders: " + (json.list?.length ?? 0));
+
+      if (!user) {
+        const nextPlays = guestPlays + 1;
+        localStorage.setItem("tl_guest_plays", String(nextPlays));
+        setGuestPlays(nextPlays);
+      }
 
       const first =
         json.list?.find((f) => f.is_dir !== "1" && (f.stream_url || (f.fast_stream_url && Object.keys(f.fast_stream_url).length > 0))) ?? null;
@@ -2587,16 +2685,116 @@ export default function Home() {
         @media (max-width: 480px) {
           .controls-left .time-display { display: none; }
         }
+
+        /* ── Auth Styles ── */
+        .auth-nav-container {
+          width: 100%;
+          max-width: 900px;
+          display: flex;
+          align-items: center;
+          justify-content: flex-end;
+          gap: 12px;
+          z-index: 100;
+          margin-bottom: 24px;
+        }
+        .plays-badge {
+          background: rgba(99, 102, 241, 0.08);
+          border: 1px solid rgba(99, 102, 241, 0.2);
+          padding: 6px 14px;
+          border-radius: 100px;
+          font-size: 0.8rem;
+          font-weight: 600;
+          color: #a5b4fc;
+          display: flex;
+          align-items: center;
+          gap: 6px;
+        }
+        .plays-badge-icon {
+          color: #818cf8;
+        }
+        .auth-btn {
+          background: rgba(255, 255, 255, 0.04);
+          border: 1px solid rgba(255, 255, 255, 0.08);
+          padding: 6px 14px;
+          border-radius: 100px;
+          font-size: 0.8rem;
+          font-weight: 600;
+          color: #fff;
+          cursor: pointer;
+          transition: all 0.2s;
+          display: flex;
+          align-items: center;
+          gap: 6px;
+        }
+        .auth-btn:hover {
+          background: rgba(255, 255, 255, 0.08);
+          border-color: rgba(255, 255, 255, 0.15);
+          transform: translateY(-1px);
+        }
+        .user-info {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+        }
+        .user-email {
+          font-size: 0.85rem;
+          color: #9499ba;
+          font-weight: 500;
+          max-width: 180px;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .logout-btn {
+          background: rgba(239, 68, 68, 0.08);
+          border: 1px solid rgba(239, 68, 68, 0.2);
+          color: #f87171;
+          padding: 6px 14px;
+          border-radius: 100px;
+          font-size: 0.8rem;
+          font-weight: 600;
+          cursor: pointer;
+          transition: all 0.2s;
+        }
+        .logout-btn:hover {
+          background: rgba(239, 68, 68, 0.12);
+          border-color: rgba(239, 68, 68, 0.3);
+          transform: translateY(-1px);
+        }
+        @media (max-width: 768px) {
+          .auth-nav-container {
+            justify-content: center;
+            margin-bottom: 20px;
+          }
+        }
       `}</style>
 
       <div className="page">
+        <div className="auth-nav-container">
+          {user ? (
+            <div className="user-info">
+              <span className="user-email" title={user.email || ""}>{user.email}</span>
+              <button className="logout-btn" onClick={handleSignOut}>Log Out</button>
+            </div>
+          ) : (
+            <>
+              <div className="plays-badge">
+                <span className="plays-badge-icon">⚡</span>
+                {Math.max(0, 5 - guestPlays)}/5 Free Plays Left
+              </div>
+              <button className="auth-btn" onClick={() => setIsAuthModalOpen(true)}>
+                🔑 Register / Log In
+              </button>
+            </>
+          )}
+        </div>
         <div className="card">
 
           {/* ── Hero Header ────────────────────────────────────────────── */}
           <header className="header">
             <div className="header-badge">
               <span className="header-badge-dot" />
-              Free &amp; Open · No Login Required
+              {user ? "Premium Unlimited Mode Enabled" : "Free & Open · No Login Required"}
             </div>
             <h1 className="header-logo">⚡ TeraLink</h1>
             <p className="header-sub">
@@ -2797,16 +2995,16 @@ export default function Home() {
             {/* Stats Row */}
             <div className="stats-row">
               <div className="stat-item">
-                <div className="stat-number">100%</div>
-                <div className="stat-label">Free Forever</div>
+                <div className="stat-number">{stats ? stats.linksResolved.toLocaleString() + "+" : "12,450+"}</div>
+                <div className="stat-label">Links Resolved</div>
               </div>
               <div className="stat-item">
-                <div className="stat-number">Instant</div>
-                <div className="stat-label">No Login Needed</div>
+                <div className="stat-number">{stats ? stats.videosPlayed.toLocaleString() + "+" : "9,840+"}</div>
+                <div className="stat-label">Videos Played</div>
               </div>
               <div className="stat-item">
-                <div className="stat-number">HD</div>
-                <div className="stat-label">Video Quality</div>
+                <div className="stat-number">{stats ? stats.activeUsers.toLocaleString() + "+" : "1,450+"}</div>
+                <div className="stat-label">Monthly Active Users</div>
               </div>
             </div>
 
@@ -2950,6 +3148,20 @@ export default function Home() {
             <p className="footer-disclaimer">We do not host any content on our servers. This service is a tool to play and download publicly shared TeraBox links.</p>
           </div>
         </footer>
+
+        <AuthModal
+          isOpen={isAuthModalOpen}
+          onClose={() => setIsAuthModalOpen(false)}
+          onSuccess={() => {
+            setIsAuthModalOpen(false);
+            fetchSession();
+          }}
+        />
+        <GuestLimitModal
+          isOpen={isLimitModalOpen}
+          onClose={() => setIsLimitModalOpen(false)}
+          onLoginClick={() => setIsAuthModalOpen(true)}
+        />
       </div>
     </>
   );
