@@ -3,6 +3,14 @@ import Link from 'next/link';
 export const metadata = {
   title: "DMCA Copyright Policy — TeraLink",
   description: "Read the DMCA & Copyright Policy for TeraLink. We do not host any files on our servers and only act as a proxy player for user-provided links.",
+  alternates: { canonical: "https://teralink.in/dmca" },
+  openGraph: {
+    title: "DMCA Copyright Policy — TeraLink",
+    description: "TeraLink's DMCA policy — we don't host files, only act as a streaming proxy.",
+    url: "https://teralink.in/dmca",
+    type: "website",
+  },
+  twitter: { card: "summary", title: "DMCA Copyright Policy — TeraLink", description: "TeraLink's DMCA & copyright policy." },
   robots: { index: true, follow: true },
 };
 

@@ -3,6 +3,14 @@ import Link from 'next/link';
 export const metadata = {
   title: "Terms & Conditions — TeraLink",
   description: "Read the Terms & Conditions for TeraLink, the free online TeraBox video player and downloader. Understand your rights and responsibilities when using our service.",
+  alternates: { canonical: "https://teralink.in/terms" },
+  openGraph: {
+    title: "Terms & Conditions — TeraLink",
+    description: "TeraLink's terms and conditions for using our free TeraBox streaming service.",
+    url: "https://teralink.in/terms",
+    type: "website",
+  },
+  twitter: { card: "summary", title: "Terms & Conditions — TeraLink", description: "TeraLink's terms and conditions." },
   robots: { index: true, follow: true },
 };
 

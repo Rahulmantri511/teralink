@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { resolveTerabox, extractShortCode } from '../../../lib/terabox';
 import { rateLimit } from '../../../lib/rate-limit';
+import { supabaseServer } from '../../../lib/supabaseServer';
 
 const TERABOX_DOMAINS = [
   'terabox.com',
@@ -93,19 +94,42 @@ export async function POST(req: NextRequest) {
                req.headers.get('x-forwarded-for')?.split(',')[0].trim() ||
                '127.0.0.1';
 
-    const limitResult = rateLimit(ip, { limitMin: 3, limitDay: 30 });
-    if (!limitResult.allowed) {
-      return NextResponse.json({
-        error: 'Too many requests. Please wait a minute or try again tomorrow.',
-      }, { 
-        status: 429,
-        headers: {
-          'X-RateLimit-Limit-Minute': '3',
-          'X-RateLimit-Limit-Day': '30',
-          'X-RateLimit-Remaining-Minute': String(limitResult.remainingMin),
-          'X-RateLimit-Remaining-Day': String(limitResult.remainingDay),
+    // Check authentication cookies
+    const accessToken = req.cookies.get("sb-access-token")?.value;
+    
+    let user = null;
+    let isPremium = false;
+    let playCount = 0;
+
+    if (accessToken) {
+      const { data: { user: authUser } } = await supabaseServer.auth.getUser(accessToken);
+      if (authUser) {
+        user = authUser;
+        const { data: profile } = await supabaseServer
+          .from("profiles")
+          .select("is_premium, premium_until, play_count")
+          .eq("id", user.id)
+          .single();
+        
+        if (profile) {
+          isPremium = !!profile.is_premium && (!profile.premium_until || new Date(profile.premium_until) > new Date());
+          playCount = isPremium ? 0 : (profile.premium_until && new Date(profile.premium_until) < new Date() ? 0 : profile.play_count || 0);
         }
-      });
+      }
+    }
+
+    if (user) {
+      if (!isPremium && playCount >= 10) {
+        return NextResponse.json({ error: "Trial limit reached. Please upgrade to premium for unlimited plays." }, { status: 402 });
+      }
+    } else {
+      // Guest Rate Limiting: 5 per IP address
+      const limitResult = rateLimit(ip, { limitMin: 3, limitDay: 5 });
+      if (!limitResult.allowed) {
+        return NextResponse.json({
+          error: "Guest trial limit reached (5 resolves). Please register for a free account (10 plays) or upgrade to premium.",
+        }, { status: 429 });
+      }
     }
 
     // Security Origin / Referer Validation
@@ -174,6 +198,24 @@ export async function POST(req: NextRequest) {
 
     if (result.status !== 'success') {
       return NextResponse.json(result, { status: 500 });
+    }
+
+    if (user && !isPremium) {
+      console.log(`[resolve] Incrementing play_count for user: ${user.id}, current: ${playCount}`);
+      const { data, error: updateError } = await supabaseServer
+        .from("profiles")
+        .upsert({
+          id: user.id,
+          email: user.email,
+          play_count: playCount + 1
+        }, { onConflict: "id" })
+        .select();
+
+      if (updateError) {
+        console.error("[resolve] Failed to update play_count error:", updateError);
+      } else {
+        console.log("[resolve] Updated play_count successfully. Profile:", data);
+      }
     }
 
     return NextResponse.json(result);

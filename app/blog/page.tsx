@@ -15,6 +15,12 @@ export const metadata: Metadata = {
     url: "https://teralink.in/blog",
     type: "website",
   },
+  twitter: {
+    card: "summary_large_image",
+    title: "TeraLink Blog — TeraBox Tutorials & Guides",
+    description: "Tips and tutorials for streaming TeraBox videos online without the app.",
+  },
+  robots: { index: true, follow: true },
 };
 
 export default function BlogIndex() {

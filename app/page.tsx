@@ -7,6 +7,7 @@ import type { TeraboxFile, TeraboxResult } from "../lib/terabox";
 import * as gtag from "../lib/gtag";
 import AuthModal from "../components/AuthModal";
 import GuestLimitModal from "../components/GuestLimitModal";
+import PaymentModal from "../components/PaymentModal";
 import type { User } from "@supabase/supabase-js";
 
 
@@ -1056,6 +1057,8 @@ export default function Home() {
   const [guestPlays, setGuestPlays] = useState<number>(0);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isLimitModalOpen, setIsLimitModalOpen] = useState(false);
+  const [userPlays, setUserPlays] = useState<number>(0);
+  const [isPayModalOpen, setIsPayModalOpen] = useState(false);
   const [stats, setStats] = useState<{
     activeUsers: number;
     linksResolved: number;
@@ -1067,6 +1070,9 @@ export default function Home() {
       const res = await fetch("/api/auth/session");
       const data = await res.json();
       setUser(data.user);
+      if (data.user) {
+        setUserPlays(data.user.play_count || 0);
+      }
     } catch {
       setUser(null);
     }
@@ -1097,6 +1103,23 @@ export default function Home() {
         }).catch(() => {
           fetchSession();
         });
+      }
+    }
+
+    // Strip Polar payment tokens from URL to prevent token leakage via
+    // browser history, server logs, or Referer headers.
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      const sensitiveParams = ["customer_session_token", "checkout_id", "order_id"];
+      let cleaned = false;
+      sensitiveParams.forEach((param) => {
+        if (url.searchParams.has(param)) {
+          url.searchParams.delete(param);
+          cleaned = true;
+        }
+      });
+      if (cleaned) {
+        window.history.replaceState(null, "", url.pathname + (url.searchParams.toString() ? "?" + url.searchParams.toString() : ""));
       }
     }
 
@@ -1217,10 +1240,20 @@ export default function Home() {
         return;
       }
       
-      if (!user && guestPlays >= 5) {
-        setIsLimitModalOpen(true);
-        isResolvingRef.current = false;
-        return;
+      // Play limit check
+      const isPremium = user && (user as any).is_premium;
+      if (!isPremium) {
+        const limit = user ? 10 : 5;
+        const currentPlays = user ? userPlays : guestPlays;
+        if (currentPlays >= limit) {
+          if (user) {
+            setIsPayModalOpen(true);
+          } else {
+            setIsLimitModalOpen(true);
+          }
+          isResolvingRef.current = false;
+          return;
+        }
       }
 
       setError("");
@@ -1260,10 +1293,14 @@ export default function Home() {
       setResult(json);
       addLog("Successfully loaded file list. Total files/folders: " + (json.list?.length ?? 0));
 
-      if (!user) {
-        const nextPlays = guestPlays + 1;
-        localStorage.setItem("tl_guest_plays", String(nextPlays));
-        setGuestPlays(nextPlays);
+      if (!isPremium) {
+        if (user) {
+          fetchSession();
+        } else {
+          const nextPlays = guestPlays + 1;
+          localStorage.setItem("tl_guest_plays", String(nextPlays));
+          setGuestPlays(nextPlays);
+        }
       }
 
       const first =
@@ -1459,11 +1496,22 @@ export default function Home() {
     "url": "https://teralink.in",
     "operatingSystem": "All",
     "applicationCategory": "MultimediaApplication",
-    "offers": {
-      "@type": "Offer",
-      "price": "0.00",
-      "priceCurrency": "USD"
-    },
+    "offers": [
+      {
+        "@type": "Offer",
+        "name": "Free Plan",
+        "price": "0.00",
+        "priceCurrency": "INR",
+        "description": "10 free video plays, no account required"
+      },
+      {
+        "@type": "Offer",
+        "name": "Premium Monthly Pass",
+        "price": "60.00",
+        "priceCurrency": "INR",
+        "description": "Unlimited plays, zero ads, 30 days access"
+      }
+    ],
     "description": "TeraLink is a free online TeraBox Video Player and Downloader. Stream TeraBox videos in HD or generate direct download links — no app, no login.",
     "softwareVersion": "1.0.0",
     "featureList": [
@@ -2773,6 +2821,21 @@ export default function Home() {
         <div className="auth-nav-container">
           {user ? (
             <div className="user-info">
+              {(user as any)?.is_premium ? (
+                <div className="plays-badge premium" style={{ color: "#fbbf24", borderColor: "rgba(251,191,36,0.3)", background: "rgba(251,191,36,0.06)" }}>
+                  <span className="plays-badge-icon">👑</span> Premium Active
+                </div>
+              ) : (
+                <>
+                  <div className="plays-badge">
+                    <span className="plays-badge-icon">⚡</span>
+                    {Math.max(0, 10 - userPlays)}/10 Plays Left
+                  </div>
+                  <button className="auth-btn upgrade" onClick={() => setIsPayModalOpen(true)} style={{ color: "#fbbf24", borderColor: "rgba(251,191,36,0.3)", background: "rgba(251,191,36,0.06)" }}>
+                    👑 Upgrade
+                  </button>
+                </>
+              )}
               <span className="user-email" title={user.email || ""}>{user.email}</span>
               <button className="logout-btn" onClick={handleSignOut}>Log Out</button>
             </div>
@@ -2794,7 +2857,7 @@ export default function Home() {
           <header className="header">
             <div className="header-badge">
               <span className="header-badge-dot" />
-              {user ? "Premium Unlimited Mode Enabled" : "Free & Open · No Login Required"}
+              {user ? ((user as any).is_premium ? "👑 Premium Unlimited Mode Enabled" : "Free Member: 10 Plays Limit") : "Free & Open · No Login Required"}
             </div>
             <h1 className="header-logo">⚡ TeraLink</h1>
             <p className="header-sub">
@@ -3161,6 +3224,11 @@ export default function Home() {
           isOpen={isLimitModalOpen}
           onClose={() => setIsLimitModalOpen(false)}
           onLoginClick={() => setIsAuthModalOpen(true)}
+        />
+        <PaymentModal
+          isOpen={isPayModalOpen}
+          onClose={() => setIsPayModalOpen(false)}
+          userEmail={user?.email || ""}
         />
       </div>
     </>

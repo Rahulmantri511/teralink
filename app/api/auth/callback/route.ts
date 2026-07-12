@@ -2,11 +2,26 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { supabaseServer } from "../../../../lib/supabaseServer";
 
+/**
+ * Validates that `next` is a safe relative path (never an absolute URL or
+ * protocol-relative URL like //evil.com). Falls back to "/" if invalid.
+ */
+function safeRedirectPath(next: string | null): string {
+  if (!next) return "/";
+  // Must start with exactly one "/" and NOT be "//" (protocol-relative) or
+  // any absolute URL scheme like "http:", "https:", "javascript:", etc.
+  if (/^\/(?!\/)/.test(next)) {
+    // Additionally strip any embedded newlines used in CRLF injection attacks
+    return next.replace(/[\r\n]/g, "");
+  }
+  return "/";
+}
+
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const code = searchParams.get("code");
-    const next = searchParams.get("next") || "/";
+    const next = safeRedirectPath(searchParams.get("next"));
     const errorParam = searchParams.get("error");
     const errorDesc = searchParams.get("error_description");
 

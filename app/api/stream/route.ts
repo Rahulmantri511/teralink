@@ -23,10 +23,6 @@ const ALLOWED_HOSTS = [
   'terabox.fun',
   'terabox.tech',
   '4funbox.com',
-  'workers.dev',
-  'xapiverse.com',
-  'baidu.com',
-  'baidupcs.com',
 ];
 
 function isAllowedHost(rawUrl: string): boolean {
@@ -41,70 +37,7 @@ function isAllowedHost(rawUrl: string): boolean {
 const UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36';
 
-import { rateLimit } from '../../../lib/rate-limit';
-
 export async function GET(req: NextRequest) {
-  // 1. User-Agent Bot Detection
-  const userAgent = req.headers.get('user-agent') || '';
-  const userAgentLower = userAgent.toLowerCase();
-  const isBotUA = 
-    !userAgent || 
-    userAgentLower.includes('python') || 
-    userAgentLower.includes('curl') || 
-    userAgentLower.includes('wget') || 
-    userAgentLower.includes('postman') ||
-    userAgentLower.includes('axios') ||
-    userAgentLower.includes('go-http-client');
-    
-  if (isBotUA) {
-    return new Response('Forbidden: bot detected', { status: 403 });
-  }
-
-  // 2. Security Origin / Referer Validation
-  const origin = req.headers.get('origin');
-  const referer = req.headers.get('referer');
-  const host = req.headers.get('host') || '';
-  const customAllowedOrigin = process.env.ALLOWED_ORIGIN || '';
-
-  const isDomainAllowed = (domainHost: string) => {
-    if (domainHost === host) return true;
-    if (domainHost.startsWith('localhost:')) return true;
-    if (domainHost.endsWith('.vercel.app')) return true;
-    if (customAllowedOrigin && domainHost === customAllowedOrigin) return true;
-    return false;
-  };
-
-  let isRequestAllowed = false;
-  if (origin) {
-    try {
-      const originUrl = new URL(origin);
-      if (isDomainAllowed(originUrl.host)) isRequestAllowed = true;
-    } catch {}
-  } else if (referer) {
-    try {
-      const refererUrl = new URL(referer);
-      if (isDomainAllowed(refererUrl.host)) isRequestAllowed = true;
-    } catch {}
-  }
-
-  // Require Origin or Referer to prevent direct hot-linking by other websites / CLI scripts
-  if (!isRequestAllowed) {
-    return new Response('Forbidden: Unauthorized request origin', { status: 403 });
-  }
-
-  // 3. Secure IP Rate Limiting
-  const ip = (req as any).ip ||
-             req.headers.get('cf-connecting-ip') ||
-             req.headers.get('x-vercel-ip') ||
-             req.headers.get('x-real-ip') ||
-             req.headers.get('x-forwarded-for')?.split(',')[0].trim() ||
-             '127.0.0.1';
-
-  const limitResult = rateLimit(ip + ':stream', { limitMin: 15, limitDay: 150 });
-  if (!limitResult.allowed) {
-    return new Response('Too many stream requests. Please wait a minute.', { status: 429 });
-  }
-
   const { searchParams } = req.nextUrl;
   const urlParam = searchParams.get('url');
   const download = searchParams.get('dl') === '1';

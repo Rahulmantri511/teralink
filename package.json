@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@google-analytics/data": "^6.1.0",
+    "@polar-sh/sdk": "^0.48.1",
     "@supabase/supabase-js": "^2.110.1",
     "hls.js": "^1.6.16",
     "next": "16.2.7",

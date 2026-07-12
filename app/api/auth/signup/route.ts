@@ -10,6 +10,23 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Email and password are required" }, { status: 400 });
     }
 
+    // Basic email format validation to reduce bounce rate
+    const emailRegex = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*\.[a-zA-Z]{2,}$/;
+    if (!emailRegex.test(email)) {
+      return NextResponse.json({ error: "Please enter a valid email address" }, { status: 400 });
+    }
+
+    // Block common disposable/temp email domains to reduce bounces
+    const disposableDomains = ["mailinator.com", "guerrillamail.com", "10minutemail.com", "throwam.com", "trashmail.com", "yopmail.com", "temp-mail.org", "fakeinbox.com", "dispostable.com", "maildrop.cc"];
+    const emailDomain = email.split("@")[1]?.toLowerCase();
+    if (disposableDomains.includes(emailDomain)) {
+      return NextResponse.json({ error: "Disposable email addresses are not allowed. Please use a real email." }, { status: 400 });
+    }
+
+    if (password.length < 8) {
+      return NextResponse.json({ error: "Password must be at least 8 characters" }, { status: 400 });
+    }
+
     const { data, error } = await supabaseServer.auth.signUp({
       email,
       password,

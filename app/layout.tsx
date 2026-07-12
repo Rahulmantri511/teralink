@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 import GoogleAnalytics from "./GoogleAnalytics";
 import Script from "next/script";
+import { cookies } from "next/headers";
+import { supabaseServer } from "../lib/supabaseServer";
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://teralink.in"),
@@ -20,7 +22,7 @@ export const metadata: Metadata = {
     "TeraBox Link Player",
     "Play TeraBox Video Online",
     "TeraBox Link Downloader",
-    "Free TeraBox Bypasser",
+    "Free TeraBox Link Optimizer",
     "Watch TeraBox without app",
     "TeraBox direct download",
     "1024tera player",
@@ -68,13 +70,35 @@ export const metadata: Metadata = {
   },
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const cookieStore = await cookies();
+  const accessToken = cookieStore.get("sb-access-token")?.value;
+  let isPremium = false;
+
+  if (accessToken) {
+    try {
+      const { data: { user } } = await supabaseServer.auth.getUser(accessToken);
+      if (user) {
+        const { data: profile } = await supabaseServer
+          .from("profiles")
+          .select("is_premium, premium_until")
+          .eq("id", user.id)
+          .single();
+        if (profile) {
+          isPremium = !!profile.is_premium && (!profile.premium_until || new Date(profile.premium_until) > new Date());
+        }
+      }
+    } catch (err) {
+      console.warn("Error checking premium status in RootLayout:", err);
+    }
+  }
+
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <head>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link
@@ -86,12 +110,22 @@ export default function RootLayout({
           href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap"
           rel="stylesheet"
         />
-        {/* Google AdSense Script */}
-        <script
-          async
-          src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-4863036831697942"
-          crossOrigin="anonymous"
-        />
+        {!isPremium && (
+          <>
+            {/* Google AdSense Script */}
+            <script
+              async
+              src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-4863036831697942"
+              crossOrigin="anonymous"
+            />
+            {/* Monetag In-Page Push Banner Script */}
+            <script
+              async
+              data-zone="11266734"
+              src="https://nap5k.com/tag.min.js"
+            />
+          </>
+        )}
       </head>
       <body>
         <GoogleAnalytics />

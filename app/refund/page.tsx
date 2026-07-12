@@ -1,20 +1,20 @@
 import Link from 'next/link';
 
 export const metadata = {
-  title: "Privacy Policy — TeraLink",
-  description: "Read the Privacy Policy for TeraLink, the free online TeraBox video player and downloader. We don't collect personal data or store your files.",
-  alternates: { canonical: "https://teralink.in/privacy" },
+  title: "Cancellation & Refund Policy — TeraLink",
+  description: "Read the Cancellation & Refund Policy for TeraLink subscriptions. Understand our terms regarding digital items, cancellations, and refund request processing.",
+  alternates: { canonical: "https://teralink.in/refund" },
   openGraph: {
-    title: "Privacy Policy — TeraLink",
-    description: "TeraLink's privacy policy — we don't collect personal data or store your files.",
-    url: "https://teralink.in/privacy",
+    title: "Cancellation & Refund Policy — TeraLink",
+    description: "TeraLink's refund policy for the Premium Monthly Pass subscription.",
+    url: "https://teralink.in/refund",
     type: "website",
   },
-  twitter: { card: "summary", title: "Privacy Policy — TeraLink", description: "TeraLink's privacy policy." },
+  twitter: { card: "summary", title: "Cancellation & Refund Policy — TeraLink", description: "TeraLink's refund and cancellation policy." },
   robots: { index: true, follow: true },
 };
 
-export default function PrivacyPolicy() {
+export default function CancellationAndRefund() {
   return (
     <>
       <style>{`
@@ -101,13 +101,6 @@ export default function PrivacyPolicy() {
           margin-bottom: 10px;
           line-height: 1.15;
         }
-        .legal-updated {
-          font-size: 0.82rem;
-          color: rgba(255,255,255,0.35);
-          display: flex;
-          align-items: center;
-          gap: 6px;
-        }
         .legal-body {
           background: rgba(17, 20, 34, 0.65);
           backdrop-filter: blur(20px);
@@ -125,20 +118,12 @@ export default function PrivacyPolicy() {
           height: 1px;
           background: linear-gradient(90deg, transparent, rgba(99,102,241,0.35), transparent);
         }
-        .legal-intro {
-          font-size: 0.95rem;
-          line-height: 1.75;
-          color: rgba(255,255,255,0.65);
-          margin-bottom: 36px;
-          padding-bottom: 24px;
-          border-bottom: 1px solid rgba(255,255,255,0.07);
-        }
         .legal-section {
           margin-bottom: 32px;
         }
         .legal-section:last-child { margin-bottom: 0; }
         .legal-h2 {
-          font-size: 1.05rem;
+          font-size: 1.1rem;
           font-weight: 700;
           color: #e2e4f0;
           margin-bottom: 12px;
@@ -161,10 +146,10 @@ export default function PrivacyPolicy() {
           flex-shrink: 0;
         }
         .legal-p {
-          font-size: 0.9rem;
-          line-height: 1.75;
-          color: rgba(255,255,255,0.6);
-          margin-bottom: 12px;
+          font-size: 0.92rem;
+          line-height: 1.8;
+          color: rgba(255,255,255,0.65);
+          margin-bottom: 16px;
         }
         .legal-p:last-child { margin-bottom: 0; }
         .legal-ul {
@@ -172,23 +157,22 @@ export default function PrivacyPolicy() {
           padding: 0;
           display: flex;
           flex-direction: column;
-          gap: 8px;
-          margin-bottom: 12px;
+          gap: 10px;
+          margin-bottom: 16px;
         }
         .legal-li {
           display: flex;
           align-items: flex-start;
           gap: 10px;
-          font-size: 0.9rem;
-          line-height: 1.65;
-          color: rgba(255,255,255,0.6);
+          font-size: 0.92rem;
+          line-height: 1.7;
+          color: rgba(255,255,255,0.65);
         }
         .legal-li::before {
           content: '→';
           color: #6366f1;
           font-weight: 700;
           flex-shrink: 0;
-          margin-top: 0px;
         }
         .footer-note {
           margin-top: 32px;
@@ -208,100 +192,91 @@ export default function PrivacyPolicy() {
           font-size: 0.78rem;
           color: rgba(165,180,252,0.6);
           text-decoration: none;
-          transition: color 0.2s;
         }
-        .footer-note-link:hover { color: #a5b4fc; }
-        @media (max-width: 600px) {
-          .legal-body { padding: 24px; }
+        .footer-note-link:hover {
+          color: #a5b4fc;
+          text-decoration: underline;
         }
       `}</style>
 
-      <div className="legal-page">
+      <main className="legal-page" role="main">
         <div className="legal-container">
           <Link href="/" className="back-btn">
-            ← Back to TeraLink
+            ← Back to Player
           </Link>
 
-          <div className="legal-header">
-            <div className="legal-badge">🔒 Legal Document</div>
-            <h1 className="legal-h1">Privacy Policy</h1>
-            <div className="legal-updated">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-              Last updated: {new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
-            </div>
-          </div>
+          <header className="legal-header">
+            <div className="legal-badge">SaaS Billing Terms</div>
+            <h1 className="legal-h1">Cancellation &amp; Refund Policy</h1>
+          </header>
 
-          <div className="legal-body">
-            <p className="legal-intro">
-              At <strong style={{color: '#c7d2fe'}}>TeraLink</strong>, accessible from our website, one of our main priorities is the privacy of our visitors. This Privacy Policy document outlines the types of information collected by TeraLink, how we use it, and what protections we have in place. By using our service, you agree to the terms of this policy.
-            </p>
-
-            <div className="legal-section">
+          <article className="legal-body">
+            <section className="legal-section">
               <h2 className="legal-h2">
-                <span className="section-number">1</span>
-                Information We Do Not Collect
+                <span className="section-number">1</span> Subscriptions &amp; Cancellations
               </h2>
               <p className="legal-p">
-                TeraLink is a client-side utility and proxy interface. We are proud to operate without collecting personal data. Specifically:
+                All premium accounts on TeraLink are billed on a subscription basis (recurring monthly/annual billing) or a usage credit basis. You have the right to cancel your premium subscription at any time.
+              </p>
+              <p className="legal-p">
+                Upon cancellation of a recurring subscription, your account will remain premium until the end of the current billing cycle. No further recurring charges will be made.
+              </p>
+            </section>
+
+            <section className="legal-section">
+              <h2 className="legal-h2">
+                <span className="section-number">2</span> Refund Eligibility
+              </h2>
+              <p className="legal-p">
+                Since TeraLink offers digital SaaS processing credits and includes a **free 5-play daily usage limit**, we encourage all users to thoroughly test our service before upgrading. 
+              </p>
+              <p className="legal-p">
+                Our refund terms are as follows:
               </p>
               <ul className="legal-ul">
-                <li className="legal-li">We do not host, store, or archive any files, videos, or folders processed through our service.</li>
-                <li className="legal-li">We do not require any registration, email addresses, passwords, or personal names.</li>
-                <li className="legal-li">All file processing is done dynamically and no data history is kept on our servers.</li>
-                <li className="legal-li">TeraBox links you paste are used solely to retrieve and proxy the content — they are not stored.</li>
+                <li className="legal-li">
+                  <strong>Technical Failures:</strong> If a payment is successfully charged but the premium credits or subscription features fail to activate on your account due to a system error, you are eligible for a full refund.
+                </li>
+                <li className="legal-li">
+                  <strong>7-Day Request Window:</strong> Refund claims must be submitted to our support team within 7 days of the transaction date.
+                </li>
+                <li className="legal-li">
+                  <strong>Unused Credits:</strong> Refunds will only be approved if the user has not resolved any links or consumed any premium API limits under the active billing period.
+                </li>
               </ul>
-            </div>
+            </section>
 
-            <div className="legal-section">
+            <section className="legal-section">
               <h2 className="legal-h2">
-                <span className="section-number">2</span>
-                Cookies and Web Storage
+                <span className="section-number">3</span> How to Request a Refund
               </h2>
               <p className="legal-p">
-                Like most websites, TeraLink may use browser cookies or local storage to improve your experience. These are limited to functional purposes such as storing your preferences (e.g., last-used quality setting). We do not use cookies for advertising, tracking, or cross-site analytics.
+                To request a refund, please send an email to **rahulmantri2002@gmail.com** with the subject line "Refund Request - TeraLink". Please include the following details:
               </p>
-            </div>
+              <ul className="legal-ul">
+                <li className="legal-li">Your registered email address.</li>
+                <li className="legal-li">Transaction ID (e.g. Razorpay Payment ID).</li>
+                <li className="legal-li">Date and amount of the transaction.</li>
+                <li className="legal-li">A brief description of why you are requesting a refund.</li>
+              </ul>
+            </section>
 
-            <div className="legal-section">
+            <section className="legal-section">
               <h2 className="legal-h2">
-                <span className="section-number">3</span>
-                Third-Party Services
+                <span className="section-number">4</span> Processing and Timeline
               </h2>
               <p className="legal-p">
-                TeraLink may utilize third-party infrastructure such as Cloudflare Workers or Vercel CDN for proxying and performance. These third-party providers have their own privacy policies. We do not sell, trade, or transfer your data to any third parties for marketing purposes.
+                Once approved, refunds are processed automatically by our billing partner (e.g. Razorpay). The funds will be credited back to your original payment method (Credit/Debit Card, UPI, Netbanking, or Wallet) within **5 to 7 working days**, depending on your bank's processing cycles.
               </p>
-              <p className="legal-p">
-                TeraLink is not affiliated, associated, authorized, endorsed by, or in any way officially connected with TeraBox or any of its subsidiaries or affiliates.
-              </p>
-            </div>
-
-            <div className="legal-section">
-              <h2 className="legal-h2">
-                <span className="section-number">4</span>
-                Children&apos;s Privacy
-              </h2>
-              <p className="legal-p">
-                TeraLink does not knowingly collect any personally identifiable information from children under the age of 13. If you believe your child has provided us with personal information, please contact us immediately and we will take steps to remove such information.
-              </p>
-            </div>
-
-            <div className="legal-section">
-              <h2 className="legal-h2">
-                <span className="section-number">5</span>
-                Your Consent
-              </h2>
-              <p className="legal-p">
-                By using our website, you hereby consent to our Privacy Policy and agree to its terms. If you have questions or concerns about this policy, you are welcome to contact us through the information available on our website.
-              </p>
-            </div>
+            </section>
 
             <div className="footer-note">
               <span className="footer-note-text">© {new Date().getFullYear()} TeraLink. All rights reserved.</span>
-              <Link href="/terms" className="footer-note-link">View Terms &amp; Conditions →</Link>
+              <Link href="/" className="footer-note-link">Back to home</Link>
             </div>
-          </div>
+          </article>
         </div>
-      </div>
+      </main>
     </>
   );
 }

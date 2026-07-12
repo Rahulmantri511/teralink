@@ -1,20 +1,20 @@
 import Link from 'next/link';
 
 export const metadata = {
-  title: "Privacy Policy — TeraLink",
-  description: "Read the Privacy Policy for TeraLink, the free online TeraBox video player and downloader. We don't collect personal data or store your files.",
-  alternates: { canonical: "https://teralink.in/privacy" },
+  title: "About Us — TeraLink",
+  description: "Learn more about TeraLink, our mission to simplify cloud storage streaming, and the SaaS productivity features we offer for users and developers.",
+  alternates: { canonical: "https://teralink.in/about" },
   openGraph: {
-    title: "Privacy Policy — TeraLink",
-    description: "TeraLink's privacy policy — we don't collect personal data or store your files.",
-    url: "https://teralink.in/privacy",
+    title: "About Us — TeraLink",
+    description: "Learn more about TeraLink, our mission to simplify cloud storage streaming, and the features we offer.",
+    url: "https://teralink.in/about",
     type: "website",
   },
-  twitter: { card: "summary", title: "Privacy Policy — TeraLink", description: "TeraLink's privacy policy." },
+  twitter: { card: "summary", title: "About Us — TeraLink", description: "Learn more about TeraLink and our mission." },
   robots: { index: true, follow: true },
 };
 
-export default function PrivacyPolicy() {
+export default function AboutUs() {
   return (
     <>
       <style>{`
@@ -101,13 +101,6 @@ export default function PrivacyPolicy() {
           margin-bottom: 10px;
           line-height: 1.15;
         }
-        .legal-updated {
-          font-size: 0.82rem;
-          color: rgba(255,255,255,0.35);
-          display: flex;
-          align-items: center;
-          gap: 6px;
-        }
         .legal-body {
           background: rgba(17, 20, 34, 0.65);
           backdrop-filter: blur(20px);
@@ -125,20 +118,12 @@ export default function PrivacyPolicy() {
           height: 1px;
           background: linear-gradient(90deg, transparent, rgba(99,102,241,0.35), transparent);
         }
-        .legal-intro {
-          font-size: 0.95rem;
-          line-height: 1.75;
-          color: rgba(255,255,255,0.65);
-          margin-bottom: 36px;
-          padding-bottom: 24px;
-          border-bottom: 1px solid rgba(255,255,255,0.07);
-        }
         .legal-section {
           margin-bottom: 32px;
         }
         .legal-section:last-child { margin-bottom: 0; }
         .legal-h2 {
-          font-size: 1.05rem;
+          font-size: 1.1rem;
           font-weight: 700;
           color: #e2e4f0;
           margin-bottom: 12px;
@@ -161,10 +146,10 @@ export default function PrivacyPolicy() {
           flex-shrink: 0;
         }
         .legal-p {
-          font-size: 0.9rem;
-          line-height: 1.75;
-          color: rgba(255,255,255,0.6);
-          margin-bottom: 12px;
+          font-size: 0.92rem;
+          line-height: 1.8;
+          color: rgba(255,255,255,0.65);
+          margin-bottom: 16px;
         }
         .legal-p:last-child { margin-bottom: 0; }
         .legal-ul {
@@ -172,23 +157,22 @@ export default function PrivacyPolicy() {
           padding: 0;
           display: flex;
           flex-direction: column;
-          gap: 8px;
-          margin-bottom: 12px;
+          gap: 10px;
+          margin-bottom: 16px;
         }
         .legal-li {
           display: flex;
           align-items: flex-start;
           gap: 10px;
-          font-size: 0.9rem;
-          line-height: 1.65;
-          color: rgba(255,255,255,0.6);
+          font-size: 0.92rem;
+          line-height: 1.7;
+          color: rgba(255,255,255,0.65);
         }
         .legal-li::before {
-          content: '→';
-          color: #6366f1;
+          content: '✓';
+          color: #34d399;
           font-weight: 700;
           flex-shrink: 0;
-          margin-top: 0px;
         }
         .footer-note {
           margin-top: 32px;
@@ -208,100 +192,102 @@ export default function PrivacyPolicy() {
           font-size: 0.78rem;
           color: rgba(165,180,252,0.6);
           text-decoration: none;
-          transition: color 0.2s;
         }
-        .footer-note-link:hover { color: #a5b4fc; }
-        @media (max-width: 600px) {
-          .legal-body { padding: 24px; }
+        .footer-note-link:hover {
+          color: #a5b4fc;
+          text-decoration: underline;
         }
       `}</style>
 
-      <div className="legal-page">
+      <main className="legal-page" role="main">
         <div className="legal-container">
           <Link href="/" className="back-btn">
-            ← Back to TeraLink
+            ← Back to Player
           </Link>
 
-          <div className="legal-header">
-            <div className="legal-badge">🔒 Legal Document</div>
-            <h1 className="legal-h1">Privacy Policy</h1>
-            <div className="legal-updated">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-              Last updated: {new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
-            </div>
-          </div>
+          <header className="legal-header">
+            <div className="legal-badge">SaaS Utility Profile</div>
+            <h1 className="legal-h1">About Us</h1>
+          </header>
 
-          <div className="legal-body">
-            <p className="legal-intro">
-              At <strong style={{color: '#c7d2fe'}}>TeraLink</strong>, accessible from our website, one of our main priorities is the privacy of our visitors. This Privacy Policy document outlines the types of information collected by TeraLink, how we use it, and what protections we have in place. By using our service, you agree to the terms of this policy.
-            </p>
-
-            <div className="legal-section">
+          <article className="legal-body">
+            <section className="legal-section">
               <h2 className="legal-h2">
-                <span className="section-number">1</span>
-                Information We Do Not Collect
+                <span className="section-number">1</span> What is TeraLink?
               </h2>
               <p className="legal-p">
-                TeraLink is a client-side utility and proxy interface. We are proud to operate without collecting personal data. Specifically:
+                TeraLink is a cloud-based link management and personal media organization utility designed to simplify how users catalog, verify, and stream their own publicly shared cloud media files. Built as a SaaS workflow helper, our platform resolves public cloud storage link structures, detects file types, and allows high-definition browser-based media organization.
+              </p>
+              <p className="legal-p">
+                Our technology is designed for productivity, allowing individuals and team members to access media directly in their browsers without installing third-party client apps, avoiding slow loading speeds, and optimizing the streaming layout.
+              </p>
+            </section>
+
+            <section className="legal-section">
+              <h2 className="legal-h2">
+                <span className="section-number">2</span> What We Do &amp; Supported Features
+              </h2>
+              <p className="legal-p">
+                TeraLink works as a metadata interpreter and link utility. Here is what we offer as part of our core subscription and support services:
               </p>
               <ul className="legal-ul">
-                <li className="legal-li">We do not host, store, or archive any files, videos, or folders processed through our service.</li>
-                <li className="legal-li">We do not require any registration, email addresses, passwords, or personal names.</li>
-                <li className="legal-li">All file processing is done dynamically and no data history is kept on our servers.</li>
-                <li className="legal-li">TeraBox links you paste are used solely to retrieve and proxy the content — they are not stored.</li>
+                <li className="legal-li">
+                  <strong>Metadata Extraction:</strong> Resolving cloud folders to analyze structure, sizes, and file types.
+                </li>
+                <li className="legal-li">
+                  <strong>Advanced Media Optimizer:</strong> Encoding streams using standard HLS formats to allow responsive playback on Android, iOS, and PC.
+                </li>
+                <li className="legal-li">
+                  <strong>Workflow Acceleration:</strong> Resolving links through high-speed cloud queues to reduce processing times.
+                </li>
+                <li className="legal-li">
+                  <strong>Premium API Integration:</strong> Offering usage-based data fetch APIs for developers who want to integrate link metadata resolution in their own tools.
+                </li>
               </ul>
-            </div>
+            </section>
 
-            <div className="legal-section">
+            <section className="legal-section">
               <h2 className="legal-h2">
-                <span className="section-number">2</span>
-                Cookies and Web Storage
+                <span className="section-number">3</span> What Users Pay For
               </h2>
               <p className="legal-p">
-                Like most websites, TeraLink may use browser cookies or local storage to improve your experience. These are limited to functional purposes such as storing your preferences (e.g., last-used quality setting). We do not use cookies for advertising, tracking, or cross-site analytics.
+                While the basic link processing is free, our premium subscription plans offer distinct value-added features for power users and developers:
               </p>
-            </div>
+              <ul className="legal-ul">
+                <li className="legal-li">
+                  <strong>Priority Queue Processing:</strong> Bypassing wait times during peak traffic hours.
+                </li>
+                <li className="legal-li">
+                  <strong>Batch Processing:</strong> Uploading and resolving multiple links at once.
+                </li>
+                <li className="legal-li">
+                  <strong>Ad-Free Experience:</strong> Using our platform interface completely free of display ads.
+                </li>
+                <li className="legal-li">
+                  <strong>API Tokens:</strong> Credits to query our high-speed parsing API from external applications.
+                </li>
+              </ul>
+            </section>
 
-            <div className="legal-section">
+            <section className="legal-section">
               <h2 className="legal-h2">
-                <span className="section-number">3</span>
-                Third-Party Services
+                <span className="section-number">4</span> Business Operations &amp; Identity
               </h2>
               <p className="legal-p">
-                TeraLink may utilize third-party infrastructure such as Cloudflare Workers or Vercel CDN for proxying and performance. These third-party providers have their own privacy policies. We do not sell, trade, or transfer your data to any third parties for marketing purposes.
+                TeraLink is operated as a software-as-a-service (SaaS) provider. We are committed to transparency, compliance, and strict adhere to terms of service of both cloud platforms and payment gateways. 
               </p>
               <p className="legal-p">
-                TeraLink is not affiliated, associated, authorized, endorsed by, or in any way officially connected with TeraBox or any of its subsidiaries or affiliates.
+                For customer support, billing inquiries, or data protection questions, please visit our <Link href="/contact" style={{color:'#a5b4fc',textDecoration:'underline'}}>Contact Page</Link> or email us at **rahulmantri2002@gmail.com**.
               </p>
-            </div>
-
-            <div className="legal-section">
-              <h2 className="legal-h2">
-                <span className="section-number">4</span>
-                Children&apos;s Privacy
-              </h2>
-              <p className="legal-p">
-                TeraLink does not knowingly collect any personally identifiable information from children under the age of 13. If you believe your child has provided us with personal information, please contact us immediately and we will take steps to remove such information.
-              </p>
-            </div>
-
-            <div className="legal-section">
-              <h2 className="legal-h2">
-                <span className="section-number">5</span>
-                Your Consent
-              </h2>
-              <p className="legal-p">
-                By using our website, you hereby consent to our Privacy Policy and agree to its terms. If you have questions or concerns about this policy, you are welcome to contact us through the information available on our website.
-              </p>
-            </div>
+            </section>
 
             <div className="footer-note">
               <span className="footer-note-text">© {new Date().getFullYear()} TeraLink. All rights reserved.</span>
-              <Link href="/terms" className="footer-note-link">View Terms &amp; Conditions →</Link>
+              <Link href="/" className="footer-note-link">Back to home</Link>
             </div>
-          </div>
+          </article>
         </div>
-      </div>
+      </main>
     </>
   );
 }

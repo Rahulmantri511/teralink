@@ -12,7 +12,10 @@ export async function GET() {
       // Verify access token
       const { data: { user }, error } = await supabaseServer.auth.getUser(accessToken);
       if (!error && user) {
-        return NextResponse.json({ user });
+        const { data: profile } = await supabaseServer.from("profiles").select("is_premium, premium_until, play_count").eq("id", user.id).single();
+        const isPremium = !!profile?.is_premium && (!profile?.premium_until || new Date(profile.premium_until) > new Date());
+        const playCount = isPremium ? 0 : (profile?.premium_until && new Date(profile.premium_until) < new Date() ? 0 : profile?.play_count || 0);
+        return NextResponse.json({ user: { ...user, is_premium: isPremium, play_count: playCount } });
       }
     }
 
@@ -39,7 +42,10 @@ export async function GET() {
           maxAge: 60 * 60 * 24 * 7, // 7 days
         });
 
-        return NextResponse.json({ user });
+        const { data: profile } = await supabaseServer.from("profiles").select("is_premium, premium_until, play_count").eq("id", user.id).single();
+        const isPremium = !!profile?.is_premium && (!profile?.premium_until || new Date(profile.premium_until) > new Date());
+        const playCount = isPremium ? 0 : (profile?.premium_until && new Date(profile.premium_until) < new Date() ? 0 : profile?.play_count || 0);
+        return NextResponse.json({ user: { ...user, is_premium: isPremium, play_count: playCount } });
       }
     }
 
@@ -84,7 +90,8 @@ export async function POST(request: Request) {
       maxAge: 60 * 60 * 24 * 7, // 7 days
     });
 
-    return NextResponse.json({ success: true, user });
+    const { data: profile } = await supabaseServer.from("profiles").select("is_premium, play_count").eq("id", user.id).single();
+    return NextResponse.json({ success: true, user: { ...user, is_premium: profile?.is_premium || false, play_count: profile?.play_count || 0 } });
   } catch (err: any) {
     return NextResponse.json({ error: err.message || "An unexpected error occurred" }, { status: 500 });
   }
