@@ -6,8 +6,12 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const redirectToHost = searchParams.get("redirect_to") || "";
 
-    const origin = redirectToHost || (typeof window !== "undefined" ? window.location.origin : "");
-    const callbackUrl = `${request.headers.get("origin") || new URL(request.url).origin}/`;
+    const host = request.headers.get("x-forwarded-host") || request.headers.get("host") || "";
+    const proto = request.headers.get("x-forwarded-proto") || "http";
+    const serverOrigin = host ? `${proto}://${host}` : new URL(request.url).origin;
+
+    const origin = redirectToHost || serverOrigin;
+    const callbackUrl = origin.endsWith("/") ? origin : `${origin}/`;
 
     const { data, error } = await supabaseServer.auth.signInWithOAuth({
       provider: "google",
