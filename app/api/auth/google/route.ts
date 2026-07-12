@@ -13,6 +13,8 @@ export async function GET(request: Request) {
     const origin = redirectToHost || serverOrigin;
     const callbackUrl = origin.endsWith("/") ? origin : `${origin}/`;
 
+    console.log("[Google Auth API] redirectToHost:", redirectToHost, "host header:", host, "proto header:", proto, "resolved serverOrigin:", serverOrigin, "final callbackUrl:", callbackUrl);
+
     const { data, error } = await supabaseServer.auth.signInWithOAuth({
       provider: "google",
       options: {
